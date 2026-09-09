@@ -1,0 +1,159 @@
+# tools-programmer
+
+A Go command-line tool for **local PR review history** and **explicit, SHA-bound GitHub approvals**, backed by a private SQLite database. The SQLite engine is compiled into the executable; the mutable history file is external. No server, background process, auto-reviewer, or repository-specific configuration is required.
+
+**A local `approved` verdict is not a published GitHub approval. Green CI is not a technical review.** The tool records declarations and applies authorized actions; it cannot decide that a human or agent actually reviewed code.
+
+## Build and first review
+
+Requires Go 1.26+ for this module. Remote commands require an existing authenticated `gh` installation (the adapter uses `gh api`, compatible with gh 2.45). Local history commands do not need `gh` or network access.
+
+```sh
+go mod download
+CGO_ENABLED=0 go build -trimpath -o bin/tools-programmer ./cmd/tools-programmer
+bin/tools-programmer --version
+bin/tools-programmer --help
+
+bin/tools-programmer project add --name demo --repo example/demo --path /path/to/checkout \
+  --github-login expected-login --git-name 'Expected User' --git-email expected@example.com
+bin/tools-programmer project list
+bin/tools-programmer pr sync --project demo --prs 8
+bin/tools-programmer pr list --project demo
+```
+
+Repository references accept `owner/repo` or `host/owner/repo`, normalize to lowercase, and default to `github.com`. URLs, `.git` suffixes and host ports are not accepted. Registration is **not** evidence of access. Repository renames/redirects are rejected during inspection. Project name and repository are unique and immutable in this MVP; local paths are optional references, never execution directories.
+
+## Project identities and pre-commit check
+
+Supply the user-approved GitHub login and Git commit name/email explicitly at registration. Nothing is inferred from the active account, Git configuration, or review declarations. The GitHub login is compared case-insensitively; Git author and committer names/emails must match exactly. Bindings are immutable; identity rotation is not supported. The tool never switches accounts or changes Git configuration.
+
+The check opens an existing v2 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
+
+```sh
+tools-programmer project check --project demo
+```
+
+This local check never invokes gh. It reads `git var GIT_AUTHOR_IDENT` and `GIT_COMMITTER_IDENT`, including environment and effective configuration overrides, rather than checking `user.name`/`user.email` alone. It requires a working tree with a single local `origin` URL matching the registered repository; supported forms are HTTPS, `ssh://git@host/owner/repo.git`, and `git@host:owner/repo.git`. Custom ports, SSH aliases that differ from the registered host, URL credentials and remote helpers are not accepted. If registration has a path, its resolved directory must equal the checkout root. Subdirectories are supported, but a different worktree path requires a pathless registration. Git repository-redirection environment variables are refused. Only the current directory is used for execution, never a stored project path. Git subprocesses are bounded to 10 seconds and 64 KiB per output stream; stderr is suppressed.
+
+**This is an advisory pre-commit gate, not Git enforcement.** Direct `git commit` bypasses it. Run it in the same shell/environment as the commit; later environment/config changes, `git -c`, `--author`, amend/reuse/cherry-pick author preservation, hooks and other commit-time changes can invalidate the result. It does not validate the identities of an already-created commit. No hooks or global enforcement are installed. Stop on failure; do not auto-switch accounts or rewrite configuration. OpenCode guidance requires this check before commits, but cannot enforce arbitrary external Git invocations.
+
+### Existing databases and safe binding
+
+Schema v2 adds three identity columns transactionally, with empty defaults. Existing projects remain **unbound**; local history stays readable/recordable, but remote operations and identity checks fail closed. Existing snapshots, review events, plans, intents, unknown outcomes and confirmations are preserved without rewriting payloads. Older v1 binaries refuse v2 databases; no downgrade is provided. Do not restore stale state or drop identity columns to bypass a guard.
+
+After explicit user approval of the identities, confirm the existing repository when binding:
+
+```sh
+tools-programmer project bind --project demo --repo example/demo \
+  --github-login expected-login --git-name 'Expected User' --git-email expected@example.com
+```
+
+Binding works once, only for a wholly unbound project. If unresolved intents exist, the expected login must match every unresolved actor; conflicts remain blocked for investigation, never reset. Legacy approval plans remain non-executable even after binding: create a fresh plan and obtain fresh authorization. Legacy unresolved intents can still be reconciled under the explicit current binding; the original plan and intent are retained. Do not remove state to enable rebinding or work around an unknown outcome.
+
+After actually reviewing the exact head and collecting evidence:
+
+```sh
+# Replace HEAD_SHA with the full lowercase 40-character SHA actually reviewed.
+bin/tools-programmer review record --project demo --pr 8 --sha HEAD_SHA \
+  --reviewer reviewer-name --method manual \
+  --outcome approved --summary 'Reviewed behavior and tests' \
+  --evidence 'review-notes.md; test-run-reference'
+bin/tools-programmer review list --project demo --pr 8
+```
+
+Outcomes are `approved`, `changes_requested`, or `incomplete`. Recording appends an event; it never replaces old history. The latest event for the project/PR/exact SHA controls local eligibility, regardless of reviewer. UTC recording time is generated by the tool, not backdated. Reviewer, method, summary and evidence are user-supplied text: **never put credentials or sensitive raw output in them**. Evidence references are not opened or uploaded.
+
+Freshness is `unobserved`, `stale`, or `current-at-last-observation`. “Current” always means relative to the last successful sync/inspection timestamp, not a live guarantee. A new head needs a new technical review; an old approval never transfers to it.
+
+## Explicit approval workflow
+
+```sh
+# Read-only on GitHub; persists a local plan and refreshed observations.
+bin/tools-programmer approval plan --project demo --prs 8,9
+bin/tools-programmer approval show --id PLAN_ID
+
+# Only after the user explicitly authorizes applying this inspected plan:
+bin/tools-programmer approval apply --id PLAN_ID
+
+# If an attempted write is ambiguous, read-only recovery:
+bin/tools-programmer approval reconcile --id PLAN_ID
+```
+
+PR lists must contain 1–50 explicit, unique positive numbers. No command scans every project or implicitly approves all open PRs. Planning succeeds with a persisted blocked plan when inspection succeeds but eligibility fails: inspect every item's `eligible` and `reasons`. An inspection/API failure is a nonzero error, not a partially usable plan. Sync may retain earlier successful observations if a later PR fails.
+
+Apply checks the entire batch before its first write, then inspects each PR again before its own write. It refuses a changed head, base SHA/ref, author, or authenticated actor; closed/draft PRs; missing write/maintain/admin capability; self-authored PRs; pending/unknown reviews; unresolved changes requests; or a missing/revoked approved local verdict. A planned existing approval that disappears cannot silently become a new write.
+
+The actor comes from `/user` for the selected host using existing gh configuration and must match the project's explicit expected login. The adapter checks before each repository request, including pagination, the final approval POST and readback/reconciliation. Fresh apply checks also enforce the binding independently of the actor stored in a plan. A mismatch stops requests; if intent was already claimed or a POST may have occurred, it remains unresolved rather than being erased. The tool does not collect/store tokens or switch accounts. Token-override environment variables are removed before invoking gh, so configure authentication through gh itself. Review permission is conservatively inferred from repository `push`, `maintain` or `admin` capabilities, but GitHub can still reject the action. **There is no self-approval workaround.** Account switching during a command is unsupported; a separate `/user` check and subsequent request cannot eliminate that race atomically.
+
+### Observed-check policy
+
+- Inspect all paginated head-commit check runs (`filter=all`) and commit statuses, not fixed workflow names.
+- For runs, select the greatest run ID per name/application. For statuses, select the greatest status ID per context. An older success cannot hide a newer pending/failure; different apps remain distinct.
+- Require every selected run to be `completed/success` and every selected status to be `success`. Pending, failed, neutral, skipped, unknown and malformed results block.
+- No checks blocks by default. A repository without CI may be registered with the explicit project policy `project add ... --allow-no-checks`. This does **not** ignore failing checks and cannot be changed on an existing project in this MVP.
+
+This is a conservative **observed-check policy**, not proof that branch protection, rulesets, required checks not yet created, review threads, merge queues, deployments, or merge requirements are satisfied. The tool never merges, labels, marks ready, or transitions drafts.
+
+### Durable intent, confirmation and unknown outcomes
+
+Before the single `POST .../pulls/N/reviews`, SQLite atomically claims an intent and rechecks the latest local verdict. The body includes a random stable operation marker, and the request always includes the exact `commit_id` and `event: APPROVE`. A uniqueness constraint spans plans for project/PR/SHA/actor. No SQLite transaction spans a network call.
+
+Only a matching response **and separate authoritative readback** of review ID, actor, `APPROVED` state and commit create a `github-confirmed` record. Local verdicts, attempt states (`intent`, `unknown`, `confirmed`) and GitHub review states are separate. Existing remote approvals are reported in observations/plans and skipped; they are not invented as locally performed operations. Confirmations are historical facts, not a promise that an approval has not since been dismissed.
+
+Any POST error, mismatched response, failed readback, interrupted process, or persistence uncertainty may mean a write occurred. The batch stops. An unresolved intent anywhere in the database blocks **all** further mutation claims, including different projects or newer heads. Concurrent apply cannot claim while another intent is unresolved. Repeated confirmed actions never publish again for that identity, even after dismissal; re-approval of a dismissed same-head review is outside this MVP.
+
+Reconciliation only reads the known review ID, or finds exactly one review matching the operation's stable body marker and identity. It never writes to GitHub. An absent/edited marker, dismissed/mismatched review, or inaccessible readback leaves the operation blocked. A crash before the POST can therefore require manual investigation indefinitely: **there is intentionally no reset, force, or blind retry command**. Keep the database and operation marker intact.
+
+GitHub offers no atomic conditional review-create transaction covering head, base, actor, CI and permissions together. Changes after final inspection remain possible; explicit `commit_id` prevents silently approving a different head. Do not interpret a successful action as a merge-safety guarantee. Do not change gh authentication during execution.
+
+## Database and output
+
+Path priority:
+
+1. `--db PATH` **before** the command.
+2. `TOOLS_PROGRAMMER_DB`.
+3. `$XDG_STATE_HOME/tools-programmer/history.db`, or `~/.local/state/tools-programmer/history.db`.
+
+Example isolated state: `tools-programmer --db /private/directory/history.db project list`. Relative file paths are accepted, SQLite URI/DSN input is not interpreted. Use an application-owned **0700** directory; the database is created **0600**. Existing public files/directories and immediate symlink targets are refused, not silently chmodded. Use trusted local filesystems and ancestors; this is not a defense against a compromised local account or hand-edited database.
+
+Schema version 2 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command. Tables: `projects`, `snapshots`, append-only `local_reviews`, immutable `plans`, `operations`, and separate `confirmations`. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
+
+**Backup:** stop all processes accessing the database, then copy the closed database file into a private directory with mode 0600. Do not copy a live file without SQLite's backup API, or remove a hot journal/WAL. Restoring an old backup loses newer intent history; do not apply its old plans as if it were current. Inspect live remote state and resolve discrepancies first. Never delete state to bypass an unknown action.
+
+Command results are JSON envelopes: `{"data": ...}` or `{"data": ..., "error":{"code":"...","message":"..."}}`. Action errors include persisted partial results where readable. Exit status is 0 on command success and 1 on errors; a successfully created ineligible plan still exits 0. Help is plain text; `--version` is JSON. Help/version do not create default state. Raw gh stderr and database internals are not printed. Each subprocess is limited to 30 seconds and 2 MiB each of stdout/stderr; pagination stops after 100 pages per endpoint and fails closed if incomplete.
+
+## OpenCode skill
+
+Project skill: [`.opencode/skills/tools-programmer/SKILL.md`](.opencode/skills/tools-programmer/SKILL.md), registered in `AGENTS.md`. It teaches recording actual technical reviews and requiring explicit user authorization before applying approval plans. Command details are portable local references.
+
+The skill is **not installed globally**. If desired later, copy its entire directory (including `references/`) into `~/.config/opencode/skills/`, make the binary available on PATH, and quit/restart OpenCode to load it. No global configuration changes are required here.
+
+The old ad-hoc Python approver is not the reusable interface. Use this CLI and its durable history instead; no issue-specific Python copy or execution path is bundled.
+
+## Verify and review the implementation
+
+```sh
+gofmt -w cmd internal
+go test ./...
+go vet ./...
+go test -race ./...
+CGO_ENABLED=0 go build -trimpath -o bin/tools-programmer ./cmd/tools-programmer
+TOOLS_PROGRAMMER_TEST_BINARY="$PWD/bin/tools-programmer" \
+  go test ./internal/cli -run TestBinarySmokeWithFakeGitHub -count=1 -v
+```
+
+Tests use real temporary SQLite files and mocked adapters/subprocesses. The binary smoke shadows `gh` with a fixture-only helper, exercises registration → review → sync → plan → actor-mismatch rejection → apply → readback → repeated apply → reconciliation, and forbids duplicate fake POSTs. Additional tests cover lossless v1 migration, explicit legacy binding, fresh actor changes, recovery after post-write actor mismatch, and effective author/committer overrides using fake Git and read-only real Git against temporary fixtures. They do not use real GitHub, credentials, Docker or network calls. Public module downloads may be needed. `go test -short ./...` skips the marked binary, Git and identity-recovery subprocess integration tests.
+
+Code map:
+
+| Package | Responsibility |
+|---|---|
+| `internal/core` | Data types, identifier validation, conservative eligibility |
+| `internal/store` | Private SQLite storage, schema, append-only history, atomic claims |
+| `internal/github` | Bounded gh argument-array adapter and pagination |
+| `internal/gitidentity` | Current-checkout association and effective Git identity checks |
+| `internal/service` | Plan, preflight, mutation confirmation and reconciliation |
+| `internal/cli` | Standard flag parsing and JSON envelopes |
+| `cmd/tools-programmer` | Signal-aware executable entrypoint |
+
+Independent review units are policy/storage with their tests, remote/action handling with adapter/service tests, and CLI/skill/docs with the binary smoke. They remain uncommitted. There is no legacy application dependency, telemetry, merge automation, or auto-LLM review engine. Rollback is removal of this independent project and its chosen test state only; never remove an operational database containing unresolved writes.
