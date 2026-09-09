@@ -1,0 +1,6 @@
+/bin/
+*.db
+*.db-*
+*.sqlite*
+/.codegraph/
+/.atl/
