@@ -4,6 +4,14 @@ Use `tools-programmer` on PATH, or the executable path supplied by the user. Che
 
 ## Local review history
 
+### Install or update OpenCode guidance
+
+With explicit user authorization, run `tools-programmer skill sync opencode` to install/update the binary's bundled `SKILL.md` and this reference in `$HOME/.config/opencode/skills/tools-programmer/`. No database, registered project, gh, network or source checkout is needed. Only `opencode` is supported; extra arguments are rejected. Sync overwrites local edits to the two owned files, leaves identical files untouched and preserves unknown files and other skills. Back up customizations first. Symlink components and incompatible file types are refused. Use trusted directories without concurrent edits; replacements are atomic per file, not as a set, and a failure may leave a partial update. Inspect JSON `updated`/`unchanged` and rerun to finish.
+
+Ensure the executable is on PATH and quit/restart OpenCode after sync. Sync does not install the executable, register projects, change account/configuration settings, or install hooks/enforcement. It does not authorize any review or approval. Rebuild the binary to bundle newer guidance.
+
+### Record and inspect reviews
+
 ```sh
 tools-programmer project add --name demo --repo example/demo \
   --github-login expected-login --git-name 'Expected User' --git-email expected@example.com

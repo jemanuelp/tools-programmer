@@ -14,6 +14,7 @@ import (
 	"tools-programmer/internal/github"
 	"tools-programmer/internal/gitidentity"
 	"tools-programmer/internal/service"
+	"tools-programmer/internal/skillsync"
 	"tools-programmer/internal/store"
 )
 
@@ -21,6 +22,7 @@ const help = `tools-programmer — local technical review history and explicit G
 
 Usage: tools-programmer [--db PATH] COMMAND SUBCOMMAND [FLAGS]
 
+skill sync      opencode (install/update bundled skill; no database or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
 project bind    --project NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL
 project check   --project NAME (read-only effective Git author/committer in current checkout)
@@ -36,6 +38,8 @@ approval apply  --id PLAN_ID
 approval reconcile --id PLAN_ID
 
 --help and --version do not open a database. Each subcommand accepts --help.
+Skill sync overwrites the two bundled files in ~/.config/opencode/skills/tools-programmer;
+other files are preserved. Keep the binary on PATH and restart OpenCode after sync.
 Database: --db, then TOOLS_PROGRAMMER_DB, then $XDG_STATE_HOME/tools-programmer/history.db
 (fallback ~/.local/state/tools-programmer/history.db). Parent directory must be private.
 Results and errors are JSON. Local commands never invoke gh.
@@ -92,6 +96,20 @@ func Run(ctx context.Context, args []string, out io.Writer, runner github.Runner
 		return emit(nil, core.Fail("invalid_input", "expected command and subcommand; use --help"))
 	}
 	command := remaining[0] + " " + remaining[1]
+	if command == "skill sync" {
+		if len(remaining) == 3 && (remaining[2] == "--help" || remaining[2] == "-h") {
+			fmt.Fprint(out, help)
+			return 0
+		}
+		if len(remaining) != 3 || remaining[2] != "opencode" {
+			return emit(nil, core.Fail("invalid_input", "expected: skill sync opencode; no additional arguments supported"))
+		}
+		result, err := skillsync.Sync()
+		if err != nil {
+			return emit(result, core.Fail("skill_sync_failed", "skill sync failed (earlier files may have been updated): "+err.Error()))
+		}
+		return emit(result, nil)
+	}
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	var name, repo, path, project, prs, sha, reviewer, method, outcome, summary, evidence, id string

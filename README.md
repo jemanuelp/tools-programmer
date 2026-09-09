@@ -126,14 +126,24 @@ Command results are JSON envelopes: `{"data": ...}` or `{"data": ..., "error":{"
 
 Project skill: [`.opencode/skills/tools-programmer/SKILL.md`](.opencode/skills/tools-programmer/SKILL.md), registered in `AGENTS.md`. It teaches recording actual technical reviews and requiring explicit user authorization before applying approval plans. Command details are portable local references.
 
-The skill is **not installed globally**. If desired later, copy its entire directory (including `references/`) into `~/.config/opencode/skills/`, make the binary available on PATH, and quit/restart OpenCode to load it. No global configuration changes are required here.
+Install or update the bundled skill explicitly:
+
+```sh
+tools-programmer skill sync opencode
+```
+
+This writes `SKILL.md` and `references/cli.md` to `$HOME/.config/opencode/skills/tools-programmer/`. Only `opencode` is supported. The executable embeds the authoritative project files at build time: no checkout, current working directory, database, project registration, gh, or network is needed. Rebuild the binary to distribute newer skill content; no prebuild generation step is required.
+
+**Sync overwrites local edits to those two files.** Back up customizations first. Identical files are left untouched; unknown files, extra references and other skills are preserved. JSON `updated` and `unchanged` lists report each owned file. Existing symlinks in HOME, its ancestors, destination parents or owned files, and incompatible file types are refused. Use a trusted directory tree without concurrent external edits. Replacement uses a temporary file and rename per file, **not a multi-file transaction**; an interrupted/failed sync may leave a partial update. Rerun sync to finish it. It does not promise crash-durable filesystem writes.
+
+Make `tools-programmer` available on **PATH**, then **quit and restart OpenCode** to load the skill. Sync does not install the executable, register projects, change accounts or Git/OpenCode configuration, or install hooks/enforcement. Global guidance is advisory; explicit identities and approval authorization remain required. Building/testing this project does not install the skill in your real HOME.
 
 The old ad-hoc Python approver is not the reusable interface. Use this CLI and its durable history instead; no issue-specific Python copy or execution path is bundled.
 
 ## Verify and review the implementation
 
 ```sh
-gofmt -w cmd internal
+gofmt -w skill.go cmd internal
 go test ./...
 go vet ./...
 go test -race ./...
@@ -154,6 +164,8 @@ Code map:
 | `internal/gitidentity` | Current-checkout association and effective Git identity checks |
 | `internal/service` | Plan, preflight, mutation confirmation and reconciliation |
 | `internal/cli` | Standard flag parsing and JSON envelopes |
+| `internal/skillsync` | Conservative, per-file sync of the embedded OpenCode skill |
+| Root package | Embeds authoritative project skill files without generated copies |
 | `cmd/tools-programmer` | Signal-aware executable entrypoint |
 
 Independent review units are policy/storage with their tests, remote/action handling with adapter/service tests, and CLI/skill/docs with the binary smoke. They remain uncommitted. There is no legacy application dependency, telemetry, merge automation, or auto-LLM review engine. Rollback is removal of this independent project and its chosen test state only; never remove an operational database containing unresolved writes.
