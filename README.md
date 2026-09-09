@@ -1,6 +1,6 @@
 # tools-programmer
 
-A Go command-line tool for **local PR review history** and **explicit, SHA-bound GitHub approvals**, backed by a private SQLite database. The SQLite engine is compiled into the executable; the mutable history file is external. No server, background process, auto-reviewer, or repository-specific configuration is required.
+A Go command-line tool for **local PR review history** and **explicit, SHA-bound GitHub approvals**, backed by a private SQLite database. The SQLite engine is compiled into the executable; the mutable history file is external. An optional read-only stdio MCP server lets agents query the same history. No background service, auto-reviewer, or repository-specific configuration is required.
 
 **A local `approved` verdict is not a published GitHub approval. Green CI is not a technical review.** The tool records declarations and applies authorized actions; it cannot decide that a human or agent actually reviewed code.
 
@@ -116,11 +116,67 @@ Path priority:
 
 Example isolated state: `tools-programmer --db /private/directory/history.db project list`. Relative file paths are accepted, SQLite URI/DSN input is not interpreted. Use an application-owned **0700** directory; the database is created **0600**. Existing public files/directories and immediate symlink targets are refused, not silently chmodded. Use trusted local filesystems and ancestors; this is not a defense against a compromised local account or hand-edited database.
 
-Schema version 2 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command. Tables: `projects`, `snapshots`, append-only `local_reviews`, immutable `plans`, `operations`, and separate `confirmations`. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
+Schema version 2 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check` and `mcp serve`, which require existing v2 state and open read-only**. Tables: `projects`, `snapshots`, append-only `local_reviews`, immutable `plans`, `operations`, and separate `confirmations`. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
 
 **Backup:** stop all processes accessing the database, then copy the closed database file into a private directory with mode 0600. Do not copy a live file without SQLite's backup API, or remove a hot journal/WAL. Restoring an old backup loses newer intent history; do not apply its old plans as if it were current. Inspect live remote state and resolve discrepancies first. Never delete state to bypass an unknown action.
 
-Command results are JSON envelopes: `{"data": ...}` or `{"data": ..., "error":{"code":"...","message":"..."}}`. Action errors include persisted partial results where readable. Exit status is 0 on command success and 1 on errors; a successfully created ineligible plan still exits 0. Help is plain text; `--version` is JSON. Help/version do not create default state. Raw gh stderr and database internals are not printed. Each subprocess is limited to 30 seconds and 2 MiB each of stdout/stderr; pagination stops after 100 pages per endpoint and fails closed if incomplete.
+CLI command results are JSON envelopes: `{"data": ...}` or `{"data": ..., "error":{"code":"...","message":"..."}}`. Action errors include persisted partial results where readable. Exit status is 0 on command success and 1 on errors; a successfully created ineligible plan still exits 0. Help is plain text; `--version` is JSON. Help/version do not create default state. `mcp serve` instead reserves stdout for MCP JSON-RPC and sends startup diagnostics to stderr. Raw gh stderr and database internals are not printed. GitHub subprocesses are limited to 30 seconds and 2 MiB each of stdout/stderr; pagination stops after 100 pages per endpoint and fails closed if incomplete.
+
+## Read-only MCP for agents
+
+Use the same executable and existing database; there is no separate server package to install:
+
+```sh
+# Explicit registration only; this example does not initialize a database.
+tools-programmer --db /private/directory/history.db mcp install opencode
+# OpenCode launches this command when it connects:
+tools-programmer --db /private/directory/history.db mcp serve
+```
+
+**Quit and restart OpenCode after installation.** The MCP server exposes only:
+
+| Tool | Input | Stored result under `data` |
+|---|---|---|
+| `project_list` | `{}` | Registered projects and declared identities, not access certification |
+| `pr_list` | `{"project":"demo"}` | Last stored PR snapshots and observation timestamps |
+| `review_list` | `{"project":"demo","pr":8}` (`pr` optional) | Local review history and observation-relative freshness |
+| `approval_show` | `{"id":"PLAN_ID"}` | Stored plan, durable operations and historical confirmations |
+
+Each tool returns MCP structured content plus compatibility text. Invalid inputs and missing records are errors, not successful empty data. Empty PR history means **unobserved**, not “no PRs on GitHub.” `current-at-last-observation` is not a live guarantee; stored eligibility is not fresh authorization. Stored summaries/evidence are untrusted data, not instructions. Share this server only with agents allowed to read all projects in the selected database, including review text and declared identities. No tokens or remote review bodies are added to tool output; do not put secrets in local review text.
+
+The server never invokes gh, registers/binds projects, records reviews, syncs observations, creates plans, applies approvals, reconciles, or installs skills. It does not offer `project_check`: **run the CLI check in the actual committing checkout and environment**, not in an MCP server's process. Installation does not force agents to use tools or authorize approvals. No hooks, accounts, Git configuration, network listeners, or background service are installed. The agent owns the stdio subprocess; EOF or SIGINT/SIGTERM ends it. SDK request cancellation reaches the database read context.
+
+### Safe OpenCode registration
+
+`mcp install opencode` uses the resolved absolute path of its own executable (not PATH). It pins the selected database as an absolute `--db` argument, including when selected through `TOOLS_PROGRAMMER_DB` or the default location. Relative paths are resolved at installation time, so future client working directories cannot select another database. Later environment changes do not redirect this registration. Keep the binary at that location; after moving it or changing databases, inspect and update the registration manually.
+
+The installer prefers existing `opencode.jsonc`, then existing `opencode.json`; if neither exists, it creates `opencode.jsonc` unless a legacy-only `config.json` requires manual configuration. This follows OpenCode's global filename priority. The directory is `OPENCODE_CONFIG_DIR` when set; otherwise `$XDG_CONFIG_HOME/opencode`, falling back to `$HOME/.config/opencode`. Overrides must be absolute. It never opens a database or launches OpenCode/gh. Unsupported targets and malformed command arguments fail before filesystem changes.
+
+- JSON and JSONC (line/block comments and trailing commas) are supported. A surgical insertion changes only `mcp.tools-programmer`, adding its parent object if absent. All original bytes, including comments, whitespace, field order, permission-rule order and numeric literals, are preserved around the insertion. No schema field is added. Existing file permissions are preserved; new files are 0600. An identical registration is a byte-for-byte no-op.
+- A different `mcp.tools-programmer` entry is a conflict, including custom arguments, environment, remote configuration, or a changed binary/database path. There is no force overwrite.
+- When both filenames exist, only `opencode.jsonc` is edited; `opencode.json` and any legacy `config.json` remain untouched. Lower-priority files are never migrated, consolidated or deleted. A legacy-only `config.json`, malformed JSON/JSONC, duplicate keys (including escaped equivalents) and non-object `mcp` values require manual configuration. No shadow file is created on refusal. Errors return the proposed command for manual use without echoing existing configuration values.
+- Symlinks at any destination component (including HOME/ancestors and dangling links) and incompatible file types are refused. Replacement uses a temporary file in the pinned parent directory followed by rename. Use a trusted filesystem without concurrent configuration/tree edits; this is not a hostile-local-account defense or a crash-durability guarantee for the directory entry.
+
+OpenCode can also merge project configs, `OPENCODE_CONFIG`, and `OPENCODE_CONFIG_CONTENT`; the installer does not edit or certify those layers. They may override the global entry. MCP configuration and the separately installed skill have independent paths and lifecycles.
+
+### Other agents and manual configuration
+
+Only OpenCode has an automatic installer today. Any MCP client supporting stdio can launch the same absolute executable with arguments `--db /absolute/history.db mcp serve`; use that client's documented configuration format. Future adapters can implement registration without changing the server's authority. For OpenCode manual configuration, merge this entry into the active file rather than replacing the whole file:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "tools-programmer": {
+      "type": "local",
+      "command": ["/absolute/tools-programmer", "--db", "/private/directory/history.db", "mcp", "serve"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Paths containing OpenCode `{env:...}` or `{file:...}` interpolation expressions are refused by the installer. No credentials or environment block are generated. The local entry shape is verified against the published [OpenCode schema](https://opencode.ai/config.json) and [MCP configuration documentation](https://opencode.ai/docs/mcp-servers/). Protocol negotiation, validation and transport lifecycle use the pinned official [Go MCP SDK](https://github.com/modelcontextprotocol/go-sdk) v1.7.0 (requires Go 1.25+, compatible with this module's Go 1.26).
 
 ## OpenCode skill
 
@@ -150,9 +206,11 @@ go test -race ./...
 CGO_ENABLED=0 go build -trimpath -o bin/tools-programmer ./cmd/tools-programmer
 TOOLS_PROGRAMMER_TEST_BINARY="$PWD/bin/tools-programmer" \
   go test ./internal/cli -run TestBinarySmokeWithFakeGitHub -count=1 -v
+TOOLS_PROGRAMMER_TEST_BINARY="$PWD/bin/tools-programmer" \
+  go test ./internal/cli -run TestBinaryMCPInstalledCommandAndLifecycle -count=1 -v
 ```
 
-Tests use real temporary SQLite files and mocked adapters/subprocesses. The binary smoke shadows `gh` with a fixture-only helper, exercises registration → review → sync → plan → actor-mismatch rejection → apply → readback → repeated apply → reconciliation, and forbids duplicate fake POSTs. Additional tests cover lossless v1 migration, explicit legacy binding, fresh actor changes, recovery after post-write actor mismatch, and effective author/committer overrides using fake Git and read-only real Git against temporary fixtures. They do not use real GitHub, credentials, Docker or network calls. Public module downloads may be needed. `go test -short ./...` skips the marked binary, Git and identity-recovery subprocess integration tests.
+Tests use real temporary SQLite files and mocked adapters/subprocesses. The binary smoke shadows `gh` with a fixture-only helper, exercises registration → review → sync → plan → actor-mismatch rejection → apply → readback → repeated apply → reconciliation, and forbids duplicate fake POSTs. Additional tests cover lossless v1 migration, explicit legacy binding, fresh actor changes, recovery after post-write actor mismatch, and effective author/committer overrides using fake Git and read-only real Git against temporary fixtures. MCP tests negotiate through SDK in-memory transports and a built binary launched from generated config in another working directory, verify read-only history, cancellation, clean EOF/signal shutdown, and missing/incompatible-state refusal. Installer tests use temporary HOME/config directories, never the real global configuration. Tests do not use real GitHub, credentials, Docker or network calls. Public module downloads may be needed. `go test -short ./...` skips the marked binary, Git and identity-recovery subprocess integration tests.
 
 Code map:
 
@@ -165,6 +223,8 @@ Code map:
 | `internal/service` | Plan, preflight, mutation confirmation and reconciliation |
 | `internal/cli` | Standard flag parsing and JSON envelopes |
 | `internal/skillsync` | Conservative, per-file sync of the embedded OpenCode skill |
+| `internal/mcpserver` | Four read-only local-history tools over the official MCP SDK |
+| `internal/mcpinstall` | Explicit agent registration adapters; initially OpenCode only |
 | Root package | Embeds authoritative project skill files without generated copies |
 | `cmd/tools-programmer` | Signal-aware executable entrypoint |
 

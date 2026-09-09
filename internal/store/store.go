@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,23 @@ import (
 	"tools-programmer/internal/core"
 )
 
-type Store struct{ DB *sql.DB }
+type Store struct {
+	DB          *sql.DB
+	readContext context.Context
+}
+
+// WithReadContext borrows the same connection pool for cancellable history queries.
+// The returned view must not be closed; the original Store owns the pool.
+func (s *Store) WithReadContext(ctx context.Context) *Store {
+	return &Store{DB: s.DB, readContext: ctx}
+}
+
+func (s *Store) context() context.Context {
+	if s.readContext != nil {
+		return s.readContext
+	}
+	return context.Background()
+}
 
 func DefaultPath() (string, error) {
 	if p := os.Getenv("TOOLS_PROGRAMMER_DB"); p != "" {
@@ -98,7 +115,7 @@ func open(path string, readOnly bool) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{db}
+	s := &Store{DB: db}
 	if readOnly {
 		var version int
 		err = db.QueryRow("PRAGMA user_version").Scan(&version)
@@ -186,14 +203,14 @@ func (s *Store) AddProject(p core.Project) (core.Project, error) {
 }
 func (s *Store) Project(name string) (core.Project, error) {
 	var p core.Project
-	err := s.DB.QueryRow("SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email FROM projects WHERE name=?", name).Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail)
+	err := s.DB.QueryRowContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email FROM projects WHERE name=?", name).Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = core.Fail("not_found", "project not registered")
 	}
 	return p, err
 }
 func (s *Store) Projects() ([]core.Project, error) {
-	rows, err := s.DB.Query("SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email FROM projects ORDER BY name")
+	rows, err := s.DB.QueryContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email FROM projects ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +234,7 @@ func (s *Store) SaveSnapshot(project string, snap core.Snapshot) error {
 	return err
 }
 func (s *Store) Snapshots(project string) ([]core.Snapshot, error) {
-	rows, err := s.DB.Query("SELECT payload FROM snapshots WHERE project=? ORDER BY pr", project)
+	rows, err := s.DB.QueryContext(s.context(), "SELECT payload FROM snapshots WHERE project=? ORDER BY pr", project)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +285,7 @@ func (s *Store) Approved(project string, pr int, sha string) (bool, error) {
 	return outcome == "approved", err
 }
 func (s *Store) Reviews(project string, pr int) ([]core.LocalReview, error) {
-	rows, err := s.DB.Query("SELECT id,r.project,r.pr,sha,reviewer,method,outcome,summary,evidence,recorded_at,COALESCE(s.payload,'') FROM local_reviews r LEFT JOIN snapshots s ON s.project=r.project AND s.pr=r.pr WHERE r.project=? AND (?=0 OR r.pr=?) ORDER BY id", project, pr, pr)
+	rows, err := s.DB.QueryContext(s.context(), "SELECT id,r.project,r.pr,sha,reviewer,method,outcome,summary,evidence,recorded_at,COALESCE(s.payload,'') FROM local_reviews r LEFT JOIN snapshots s ON s.project=r.project AND s.pr=r.pr WHERE r.project=? AND (?=0 OR r.pr=?) ORDER BY id", project, pr, pr)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +337,7 @@ func (s *Store) SavePlan(p core.Plan) error {
 func (s *Store) Plan(id string) (core.Plan, error) {
 	var p core.Plan
 	var b string
-	err := s.DB.QueryRow("SELECT payload FROM plans WHERE id=?", id).Scan(&b)
+	err := s.DB.QueryRowContext(s.context(), "SELECT payload FROM plans WHERE id=?", id).Scan(&b)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, core.Fail("not_found", "plan not found")
 	}
@@ -360,7 +377,7 @@ func (s *Store) Unresolved() (string, error) {
 	return id, err
 }
 func (s *Store) Operations(planID string) ([]core.Operation, error) {
-	rows, err := s.DB.Query("SELECT id,plan_id,project,pr,sha,actor,state,review_id,created_at,updated_at FROM operations WHERE plan_id=? ORDER BY pr", planID)
+	rows, err := s.DB.QueryContext(s.context(), "SELECT id,plan_id,project,pr,sha,actor,state,review_id,created_at,updated_at FROM operations WHERE plan_id=? ORDER BY pr", planID)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +424,7 @@ func (s *Store) Confirm(o core.Operation, r core.RemoteReview) error {
 	return tx.Commit()
 }
 func (s *Store) Confirmations(planID string) ([]core.Confirmation, error) {
-	rows, err := s.DB.Query("SELECT c.payload FROM confirmations c JOIN operations o ON o.id=c.operation_id WHERE o.plan_id=? ORDER BY o.pr", planID)
+	rows, err := s.DB.QueryContext(s.context(), "SELECT c.payload FROM confirmations c JOIN operations o ON o.id=c.operation_id WHERE o.plan_id=? ORDER BY o.pr", planID)
 	if err != nil {
 		return nil, err
 	}

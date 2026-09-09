@@ -7,12 +7,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
 	"tools-programmer/internal/core"
 	"tools-programmer/internal/github"
 	"tools-programmer/internal/gitidentity"
+	"tools-programmer/internal/mcpinstall"
 	"tools-programmer/internal/service"
 	"tools-programmer/internal/skillsync"
 	"tools-programmer/internal/store"
@@ -23,6 +25,8 @@ const help = `tools-programmer — local technical review history and explicit G
 Usage: tools-programmer [--db PATH] COMMAND SUBCOMMAND [FLAGS]
 
 skill sync      opencode (install/update bundled skill; no database or gh)
+mcp serve       (stdio MCP; existing database read-only; diagnostics on stderr)
+mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
 project bind    --project NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL
 project check   --project NAME (read-only effective Git author/committer in current checkout)
@@ -42,7 +46,9 @@ Skill sync overwrites the two bundled files in ~/.config/opencode/skills/tools-p
 other files are preserved. Keep the binary on PATH and restart OpenCode after sync.
 Database: --db, then TOOLS_PROGRAMMER_DB, then $XDG_STATE_HOME/tools-programmer/history.db
 (fallback ~/.local/state/tools-programmer/history.db). Parent directory must be private.
-Results and errors are JSON. Local commands never invoke gh.
+Results and errors are JSON, except mcp serve uses the MCP protocol on stdout.
+MCP installation pins absolute executable/database paths; restart OpenCode after install.
+Local commands never invoke gh.
 Planning is read-only on GitHub. Only explicit approval apply may publish APPROVE reviews.
 Unknown writes require read-only reconciliation; never retry them blindly.
 `
@@ -53,6 +59,12 @@ type envelope struct {
 }
 
 func Run(ctx context.Context, args []string, out io.Writer, runner github.Runner) int {
+	return RunWithIO(ctx, args, os.Stdin, out, os.Stderr, runner)
+}
+
+// RunWithIO keeps the MCP protocol and diagnostics on separate streams.
+func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr io.Writer, runner github.Runner) int {
+	resultOut := out
 	emit := func(data any, err error) int {
 		e := envelope{Data: data}
 		code := 0
@@ -64,7 +76,7 @@ func Run(ctx context.Context, args []string, out io.Writer, runner github.Runner
 			e.Error = typed
 			code = 1
 		}
-		enc := json.NewEncoder(out)
+		enc := json.NewEncoder(resultOut)
 		enc.SetIndent("", "  ")
 		if enc.Encode(e) != nil {
 			return 1
@@ -96,6 +108,31 @@ func Run(ctx context.Context, args []string, out io.Writer, runner github.Runner
 		return emit(nil, core.Fail("invalid_input", "expected command and subcommand; use --help"))
 	}
 	command := remaining[0] + " " + remaining[1]
+	if command == "mcp serve" || command == "mcp install" {
+		if len(remaining) == 3 && (remaining[2] == "--help" || remaining[2] == "-h") {
+			fmt.Fprint(out, help)
+			return 0
+		}
+		if command == "mcp serve" {
+			resultOut = stderr
+			if len(remaining) != 2 {
+				return emit(nil, core.Fail("invalid_input", "expected: [--db PATH] mcp serve; no additional arguments supported"))
+			}
+			if err := serveMCP(ctx, *dbPath, in, out); err != nil {
+				return emit(nil, err)
+			}
+			return 0
+		}
+		if len(remaining) != 3 || !mcpinstall.Supports(remaining[2]) {
+			return emit(nil, core.Fail("invalid_input", "expected: mcp install opencode; unsupported target or additional arguments"))
+		}
+		path, err := selectedDatabase(*dbPath)
+		if err != nil {
+			return emit(nil, err)
+		}
+		result, err := mcpinstall.Install(remaining[2], path)
+		return emit(result, err)
+	}
 	if command == "skill sync" {
 		if len(remaining) == 3 && (remaining[2] == "--help" || remaining[2] == "-h") {
 			fmt.Fprint(out, help)
