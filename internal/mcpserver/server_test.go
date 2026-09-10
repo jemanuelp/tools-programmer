@@ -110,7 +110,7 @@ func TestReadOnlyProtocolAndStoredSemantics(t *testing.T) {
 			t.Fatalf("unsafe annotation: %+v", tool)
 		}
 	}
-	if !reflect.DeepEqual(names, []string{"approval_show", "pr_list", "project_list", "review_list"}) {
+	if !reflect.DeepEqual(names, []string{"approval_show", "issue_summary", "pr_list", "project_list", "review_list"}) {
 		t.Fatalf("surface: %v", names)
 	}
 	projects, _ := db.Projects()

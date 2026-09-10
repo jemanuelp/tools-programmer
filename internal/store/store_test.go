@@ -144,7 +144,7 @@ func TestPersistenceIsolationAndStaleness(t *testing.T) {
 }
 func TestSQLitePragmasSchemaAndPrivateStorage(t *testing.T) {
 	s, path := openTest(t)
-	for query, want := range map[string]int{"PRAGMA foreign_keys": 1, "PRAGMA busy_timeout": 5000, "PRAGMA synchronous": 2, "PRAGMA user_version": 2} {
+	for query, want := range map[string]int{"PRAGMA foreign_keys": 1, "PRAGMA busy_timeout": 5000, "PRAGMA synchronous": 2, "PRAGMA user_version": 3} {
 		var got int
 		if err := s.DB.QueryRow(query).Scan(&got); err != nil || got != want {
 			t.Fatalf("%s: %d %v", query, got, err)

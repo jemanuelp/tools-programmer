@@ -55,7 +55,7 @@ func Open(path string) (*Store, error) {
 	return open(path, false)
 }
 
-// OpenReadOnly requires existing v2 state and performs no initialization or migration.
+// OpenReadOnly requires existing current state and performs no initialization or migration.
 func OpenReadOnly(path string) (*Store, error) {
 	return open(path, true)
 }
@@ -119,8 +119,8 @@ func open(path string, readOnly bool) (*Store, error) {
 	if readOnly {
 		var version int
 		err = db.QueryRow("PRAGMA user_version").Scan(&version)
-		if err == nil && version != 2 {
-			err = core.Fail("identity_unbound", "project check requires existing schema v2 state; migrate and explicitly bind legacy projects first")
+		if err == nil && version != 3 {
+			err = core.Fail("identity_unbound", "read-only access requires existing schema v3 state; migrate and explicitly bind legacy projects first")
 		}
 	} else {
 		err = s.migrate()
@@ -144,7 +144,7 @@ func (s *Store) migrate() error {
 	if err := s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 2 {
+	if version > 3 {
 		return core.Fail("newer_schema", "database schema is newer than this binary; upgrade the binary")
 	}
 	if version == 0 {
@@ -158,6 +158,11 @@ func (s *Store) migrate() error {
 ALTER TABLE projects ADD COLUMN git_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE projects ADD COLUMN git_email TEXT NOT NULL DEFAULT '';
 PRAGMA user_version=2;`); err != nil {
+			return err
+		}
+	}
+	if version < 3 {
+		if err := s.migrateIssues(); err != nil {
 			return err
 		}
 	}

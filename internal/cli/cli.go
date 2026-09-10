@@ -24,6 +24,9 @@ const help = `tools-programmer — local technical review history and explicit G
 
 Usage: tools-programmer [--db PATH] COMMAND SUBCOMMAND [FLAGS]
 
+issue           add|observe|link|propose|confirm|outcome|summary (use issue summary --help)
+activity record normalized local runtime event on stdin (no raw payloads)
+
 skill sync      opencode (install/update bundled skill; no database or gh)
 mcp serve       (stdio MCP; existing database read-only; diagnostics on stderr)
 mcp install     opencode (register this executable; no database open or gh)
@@ -108,6 +111,14 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		return emit(nil, core.Fail("invalid_input", "expected command and subcommand; use --help"))
 	}
 	command := remaining[0] + " " + remaining[1]
+	if remaining[0] == "issue" || remaining[0] == "activity" {
+		if len(remaining) == 3 && (remaining[2] == "--help" || remaining[2] == "-h") {
+			fmt.Fprint(out, issueHelp)
+			return 0
+		}
+		data, err := runIssue(ctx, *dbPath, command, remaining[2:], in)
+		return emit(data, err)
+	}
 	if command == "mcp serve" || command == "mcp install" {
 		if len(remaining) == 3 && (remaining[2] == "--help" || remaining[2] == "-h") {
 			fmt.Fprint(out, help)

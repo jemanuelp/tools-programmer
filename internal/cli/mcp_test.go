@@ -233,7 +233,7 @@ func TestBinaryMCPInstalledCommandAndLifecycle(t *testing.T) {
 		t.Fatal("no initialization")
 	}
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 4 {
+	if err != nil || len(list.Tools) != 5 {
 		t.Fatalf("%+v %v", list, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_list"})

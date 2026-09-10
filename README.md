@@ -2,6 +2,8 @@
 
 A Go command-line tool for **local PR review history** and **explicit, SHA-bound GitHub approvals**, backed by a private SQLite database. The SQLite engine is compiled into the executable; the mutable history file is external. An optional read-only stdio MCP server lets agents query the same history. No background service, auto-reviewer, or repository-specific configuration is required.
 
+Local **issue estimates and agent activity** are also available: [local issue workflow and activity accounting](docs/issues.md). Estimates use human-confirmed Fibonacci **1, 2, 3, 5, 8, 13, 21**, never hours. Runtime accuracy is not certified; summaries expose unknown observation gaps rather than fabricating time.
+
 **A local `approved` verdict is not a published GitHub approval. Green CI is not a technical review.** The tool records declarations and applies authorized actions; it cannot decide that a human or agent actually reviewed code.
 
 ## Build and first review
@@ -27,7 +29,7 @@ Repository references accept `owner/repo` or `host/owner/repo`, normalize to low
 
 Supply the user-approved GitHub login and Git commit name/email explicitly at registration. Nothing is inferred from the active account, Git configuration, or review declarations. The GitHub login is compared case-insensitively; Git author and committer names/emails must match exactly. Bindings are immutable; identity rotation is not supported. The tool never switches accounts or changes Git configuration.
 
-The check opens an existing v2 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
+The check opens an existing v3 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
 
 ```sh
 tools-programmer project check --project demo
@@ -40,6 +42,8 @@ This local check never invokes gh. It reads `git var GIT_AUTHOR_IDENT` and `GIT_
 ### Existing databases and safe binding
 
 Schema v2 adds three identity columns transactionally, with empty defaults. Existing projects remain **unbound**; local history stays readable/recordable, but remote operations and identity checks fail closed. Existing snapshots, review events, plans, intents, unknown outcomes and confirmations are preserved without rewriting payloads. Older v1 binaries refuse v2 databases; no downgrade is provided. Do not restore stale state or drop identity columns to bypass a guard.
+
+Schema v3 adds issue/estimation/activity tables and append-only guards. Ordinary writable open migrates v1/v2 additively; existing approval operations, including unknown outcomes, are untouched. No reset command or automatic deletion is introduced. Older binaries reject the newer schema; do not downgrade the database to make them run.
 
 After explicit user approval of the identities, confirm the existing repository when binding:
 
@@ -116,7 +120,7 @@ Path priority:
 
 Example isolated state: `tools-programmer --db /private/directory/history.db project list`. Relative file paths are accepted, SQLite URI/DSN input is not interpreted. Use an application-owned **0700** directory; the database is created **0600**. Existing public files/directories and immediate symlink targets are refused, not silently chmodded. Use trusted local filesystems and ancestors; this is not a defense against a compromised local account or hand-edited database.
 
-Schema version 2 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check` and `mcp serve`, which require existing v2 state and open read-only**. Tables: `projects`, `snapshots`, append-only `local_reviews`, immutable `plans`, `operations`, and separate `confirmations`. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
+Schema version 3 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v3 state and open read-only**. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
 
 **Backup:** stop all processes accessing the database, then copy the closed database file into a private directory with mode 0600. Do not copy a live file without SQLite's backup API, or remove a hot journal/WAL. Restoring an old backup loses newer intent history; do not apply its old plans as if it were current. Inspect live remote state and resolve discrepancies first. Never delete state to bypass an unknown action.
 
@@ -141,6 +145,7 @@ tools-programmer --db /private/directory/history.db mcp serve
 | `pr_list` | `{"project":"demo"}` | Last stored PR snapshots and observation timestamps |
 | `review_list` | `{"project":"demo","pr":8}` (`pr` optional) | Local review history and observation-relative freshness |
 | `approval_show` | `{"id":"PLAN_ID"}` | Stored plan, durable operations and historical confirmations |
+| `issue_summary` | `{"project":"demo","number":1}` | Local issue history, confirmed estimates, observed interval union, summed agent time, retries and unknown gaps |
 
 Each tool returns MCP structured content plus compatibility text. Invalid inputs and missing records are errors, not successful empty data. Empty PR history means **unobserved**, not “no PRs on GitHub.” `current-at-last-observation` is not a live guarantee; stored eligibility is not fresh authorization. Stored summaries/evidence are untrusted data, not instructions. Share this server only with agents allowed to read all projects in the selected database, including review text and declared identities. No tokens or remote review bodies are added to tool output; do not put secrets in local review text.
 
@@ -223,7 +228,7 @@ Code map:
 | `internal/service` | Plan, preflight, mutation confirmation and reconciliation |
 | `internal/cli` | Standard flag parsing and JSON envelopes |
 | `internal/skillsync` | Conservative, per-file sync of the embedded OpenCode skill |
-| `internal/mcpserver` | Four read-only local-history tools over the official MCP SDK |
+| `internal/mcpserver` | Five read-only local-history tools over the official MCP SDK |
 | `internal/mcpinstall` | Explicit agent registration adapters; initially OpenCode only |
 | Root package | Embeds authoritative project skill files without generated copies |
 | `cmd/tools-programmer` | Signal-aware executable entrypoint |
