@@ -1,6 +1,6 @@
 # Estimate issues locally; measure only observed agent activity
 
-Issue estimates and runtime observations live in the existing private SQLite database. Nothing is published to GitHub. The CLI and read-only MCP use the same `Service.IssueSummary` and a consistent SQLite read snapshot. **Activity accounting covers normalized observations only; it does not certify a live runtime collector.**
+Issue estimates and runtime observations live in the existing private SQLite database. Nothing is published to GitHub. The CLI and read-only MCP use the same `Service.IssueSummary` and a consistent SQLite read snapshot. **The observer is experimental: fixture tests do not establish accuracy on a live OpenCode/OpenChamber host.**
 
 ## Quick path
 
@@ -67,14 +67,53 @@ Closed intervals are clipped to their assignment segment. The observer splits ac
 
 Permission/question waits and retry/delegation intervals mask inference. A targeted wait masks only its blocked tool; independent tools remain active. Retry has separate union and summed-agent fields. No active interval ends at “now”: an orphan start/stop is an explicit unknown gap. An interrupted observation cannot prove continuous activity through its missing suffix. A heartbeat supplies no active interval. A silent tool with a supported start and eventual terminal event retains the full observed interval unless interrupted by a gap.
 
+## Opt-in OpenCode loading — not performed by build or tests
+
+The artifact is in `integrations/opencode/`, **outside auto-discovery directories**. The existing MCP installer does not install it. No daemon or telemetry service is needed; the observer sends normalized events to a bounded local subprocess recorder.
+
+After explicit consent, an operator can copy `plugin.ts`, `observer.mjs` and `transport.mjs` together into an operator-owned directory where `@opencode-ai/plugin` is resolvable (for example a subdirectory under the existing OpenCode config directory, not its auto-discovered plugins folder). Preserve the existing config; append this tuple to its existing `plugin` array rather than replacing the file or other entries:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    ["file:///absolute/observer/plugin.ts", {
+      "binary": "/absolute/tools-programmer",
+      "database": "/private/tools-programmer/history.db"
+    }]
+  ]
+}
+```
+
+This is a **fragment**, not a replacement configuration. Review any existing permissions separately; do not grant broad permissions to enable timing. Quit and restart OpenCode only when the host owner authorizes it. To disable, remove only that tuple and restart with consent. Keep the history DB; disabling collection is not deletion.
+
+The `tools_programmer_assign` custom tool asks permission and accepts only project and issue. Its implementation obtains `sessionID` from actual `ToolContext`, not model arguments. The runtime namespace hashes server origin/project/worktree; restart on a different origin is intentionally a different namespace and requires a new assignment. Stable namespaces can resume the last stored assignment but open a new observation segment with a recovery gap. Parallel observer instances for the same namespace are not certified; load one observer per project/server and do not install duplicate copies.
+
+## What is proved, and what remains experimental
+
+The adapter targets installed OpenCode **1.18.29** types/hooks. It uses raw `message.part.updated`, permission/question events, retry status and task metadata. It never uses OpenChamber's synthetic “busy” activity signal, which also includes retries. Tool `error` events supply a terminal boundary even when the after-hook is absent. Streaming text/reasoning updates provide conservative observed inference spans; busy and provider latency alone are not counted.
+
+**Known limitations requiring live evidence or follow-up:**
+
+- Inference before the first streaming update and missing streaming terminal updates remain unknown; this is not a complete provider-compute timer.
+- Timely task metadata can correlate parent dispatch with a child. Late/missing correlation creates explicit gaps and never reattributes earlier unassigned work. Reused children get fresh segments; background/reused/delegated behavior still requires real host verification.
+- Restart does not recover an ephemeral event stream. The DB retains old incomplete intervals; resume starts fresh observed intervals with gaps, not fabricated history. No authoritative remote-state reconciliation API has been proved here.
+- Out-of-order normalized start/stop ingestion is supported. Arbitrarily reordered raw runtime notifications, multiple observer instances, cancellation edge cases and reconnect behavior are **not certified**. Ambiguity is incomplete evidence, not successful work.
+- The bounded queue/subprocess can lose observations under failure or overload. Subsequent successful recording marks an event-loss gap; errors are static diagnostics without payloads. A permanently stopped observer leaves unresolved starts, not continuing activity.
+- Configuration/type inspection, module tests and synthetic fixtures do not prove actual installed lifecycle accuracy. Completion of issue #1 acceptance requires separately authorized host sessions covering inference, waits, retries, delegation, failure, background/reused children and recovery. No provider spend, host restart or installation is part of the tests.
+
 ## Verification and rollback
 
 ```sh
 go test ./internal/core ./internal/store ./internal/cli ./internal/mcpserver ./internal/service
+node --test integrations/opencode/observer.test.mjs integrations/opencode/transport.test.mjs
+# Optional installed-package loader fixture; no live server or provider access:
+OPENCODE_PLUGIN_MODULE=/absolute/node_modules/@opencode-ai/plugin/dist/index.js \
+  bun test integrations/opencode/plugin.test.ts
 go test ./...
 go vet ./...
 ```
 
 Fixtures use temporary SQLite and fake GitHub/processes. Existing approval tests remain required. Additive v3 migration preserves registrations, bindings, review history and unresolved remote operations; read-only MCP never initializes or migrates. There is no destructive reset command. An authorized disposable fresh database can be initialized at an explicitly selected new private path, without deleting the existing one. Never discard unresolved real remote outcomes to bypass a guard.
 
-Code rollback boundary: the local issue workflow, including domain/store migration, recorder, CLI/shared summary/MCP, and their tests and documentation. **A migrated DB is not backward compatible with the older binary**: retain a v3-capable binary; do not roll back `user_version`, remove tables, or restore stale approval state. No commits or deployment are required to inspect these work units.
+Code rollback boundaries: domain/store migration and tests; issue CLI/shared summary/MCP and tests; optional observer and its isolated tests/docs. Removing the observer does not remove local issue functionality. **A migrated DB is not backward compatible with the older binary**: retain a v3-capable binary; do not roll back `user_version`, remove tables, or restore stale approval state. No commits or deployment are required to inspect these work units.

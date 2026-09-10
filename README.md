@@ -2,7 +2,7 @@
 
 A Go command-line tool for **local PR review history** and **explicit, SHA-bound GitHub approvals**, backed by a private SQLite database. The SQLite engine is compiled into the executable; the mutable history file is external. An optional read-only stdio MCP server lets agents query the same history. No background service, auto-reviewer, or repository-specific configuration is required.
 
-Local **issue estimates and agent activity** are also available: [local issue workflow and activity accounting](docs/issues.md). Estimates use human-confirmed Fibonacci **1, 2, 3, 5, 8, 13, 21**, never hours. Runtime accuracy is not certified; summaries expose unknown observation gaps rather than fabricating time.
+Local **issue estimates and agent activity** are also available: [issue workflow and experimental OpenCode observer](docs/issues.md). Estimates use human-confirmed Fibonacci **1, 2, 3, 5, 8, 13, 21**, never hours. Runtime accuracy is not certified; summaries expose unknown observation gaps rather than fabricating time.
 
 **A local `approved` verdict is not a published GitHub approval. Green CI is not a technical review.** The tool records declarations and applies authorized actions; it cannot decide that a human or agent actually reviewed code.
 
