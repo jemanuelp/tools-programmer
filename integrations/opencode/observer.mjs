@@ -13,13 +13,19 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
   const correlationAttempts = new Set();
   const generations = new Map();
   const terminals = new Map();
-  const received = (session, activity, terminal = false) => {
+  const waitReceipts = new Map();
+  const statusReceipts = new Map();
+  const recoveryHooks = new Set();
+  let receipt = 0;
+  const received = (session, activity, terminal = false, invalidates = false) => {
     if (!validID(session)) return;
-    generations.set(session, (generations.get(session) ?? 0) + 1);
+    const order = ++receipt;
+    if (invalidates) generations.set(session, (generations.get(session) ?? 0) + 1);
     if (terminal && validID(activity)) {
-      if (!terminals.has(session)) terminals.set(session, new Set());
-      terminals.get(session).add(activity);
+      if (!terminals.has(session)) terminals.set(session, new Map());
+      if (!terminals.get(session).has(activity)) terminals.get(session).set(activity, order);
     }
+    return order;
   };
   let tail = Promise.resolve();
   let pending = 0;
@@ -108,29 +114,37 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
     return s;
   };
 
-  const begin = async (s, activity, category, at, target) => {
+  const terminalBeforeSnapshot = (s, activity) => {
+    const order = terminals.get(s.id)?.get(activity);
+    return order !== undefined && order <= s.recoveredThrough;
+  };
+
+  const begin = async (s, activity, category, at, target, fromSnapshot = false) => {
     if (!validID(activity) || (target && !validID(target))) return;
-    if (terminals.get(s.id)?.has(activity)) return;
+    // Receive-ahead tombstones protect snapshot imports, not ordered live
+    // starts whose corresponding stop is merely waiting behind persistence.
+    if (fromSnapshot && terminalBeforeSnapshot(s, activity)) return;
     if (["tool", "inference", "retry"].includes(category) && s.attributionUnknown) return;
     if ((category === "tool" || category === "inference") && (!s.recoveryOK || s.untargetedWaits.size)) return;
     if (category === "inference" && readSessionState && !s.inferenceKnown) return;
     if (s.active.has(activity) || s.closed.has(activity)) return;
     const fields = { activity, category, ...(target ? { target } : {}) };
     await emit(s, { kind: "start", at, ...fields });
-    s.active.set(activity, fields);
+    s.active.set(activity, { ...fields, startAt: at });
   };
 
   const end = async (s, activity, at) => {
     s.untargetedWaits.delete(activity);
-    const fields = s.active.get(activity);
-    if (!fields) {
+    const active = s.active.get(activity);
+    if (!active) {
       if (!s.closed.has(activity)) {
         await gap(s, "unsupported_lifecycle", at);
         s.closed.add(activity);
       }
       return;
     }
-    await emit(s, { kind: "stop", at, ...fields });
+    const { startAt, ...fields } = active;
+    await emit(s, { kind: "stop", at: Math.max(at, startAt), ...fields });
     s.active.delete(activity);
     s.closed.add(activity);
   };
@@ -160,6 +174,8 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
     }
     const at = Math.max(s.at, clock());
     s.recoveredAt = at;
+    s.recoveredThrough = receipt;
+    s.recoveredActive = snapshot.status === "busy" || snapshot.status === "retry";
     s.recoveryOK = true;
     if (snapshot.parentSessionID && !s.assignment.parent_session) {
       childParents.set(s.id, snapshot.parentSessionID);
@@ -169,16 +185,16 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
     s.inferenceKnown = snapshot.status !== "unknown";
     for (const id of snapshot.closed) s.closed.add(id);
     for (const wait of snapshot.waits) {
-      if (terminals.get(s.id)?.has(wait.activity)) continue;
+      if (terminalBeforeSnapshot(s, wait.activity)) continue;
       if (!wait.target) s.untargetedWaits.add(wait.activity);
-      await begin(s, wait.activity, wait.category, at, wait.target);
+      await begin(s, wait.activity, wait.category, at, wait.target, true);
     }
     if (snapshot.status === "retry") {
       s.retry = randomUUID();
       await begin(s, s.retry, "retry", at);
     }
     if (snapshot.status === "busy" || snapshot.status === "retry") {
-      for (const tool of snapshot.running) await begin(s, tool.activity, tool.category, at);
+      for (const tool of snapshot.running) await begin(s, tool.activity, tool.category, at, undefined, true);
     } else if (snapshot.running.length) {
       // A persisted running part is not proof that a process-local job
       // survived a server restart. Require a currently active session status.
@@ -216,7 +232,7 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
     assign(context, project, issue) {
       const at = clock();
       const session = context.sessionID;
-      received(session);
+      received(session, undefined, false, true);
       // Only the plugin wrapper calls this with the actual ToolContext. There
       // is deliberately no session argument in the model-facing tool schema.
       return serial(async () => {
@@ -246,7 +262,14 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
       const call = input.callID;
       const task = input.tool === "task";
       received(session);
+      const recoveryKey = `${session}\0${call}`;
+      const freshHook = !recoveryHooks.has(recoveryKey);
+      recoveryHooks.add(recoveryKey);
       return serial(async () => {
+        const previous = sessions.get(session);
+        // One attempt at an actual new execution boundary, never per update,
+        // duplicate hook, timeout loop, or inferred heartbeat activity.
+        if (freshHook && previous && !previous.recoveryOK) previous.recoveryAttempted = false;
         const s = await ensure(session, at);
         if (task && !dispatches.has(`${session}\0${call}`)) {
           const marker = "dispatch-" + createHash("sha256").update(`${runtime}\0${session}\0${call}`).digest("hex");
@@ -291,19 +314,23 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
         const status = part?.state?.status;
         const child = validID(part?.state?.metadata?.sessionId) ? part.state.metadata.sessionId : undefined;
         const finished = typeof part?.time?.end === "number";
-        received(session, activity, partType === "tool" ? status === "completed" || status === "error" : finished);
+        const order = received(session, activity, partType === "tool" ? status === "completed" || status === "error" : finished);
         return serial(async () => {
           const s = await ensure(session, at);
-          if (s.recoveredAt !== undefined && at < s.recoveredAt) return;
+          const predates = s.recoveredThrough !== undefined && order <= s.recoveredThrough;
+          if (predates && terminalBeforeSnapshot(s, activity) && !s.active.has(activity)) return;
+          if (predates && !s.recoveredActive) return;
+          const startAt = Math.max(at, s.at, s.recoveredAt ?? s.at);
+          const endAt = Math.max(at, s.at);
           if (partType === "tool") {
             if (isTask) await correlate(session, activity, child, at);
-            if (status === "running") await begin(s, activity, category, at);
-            if (status === "completed" || status === "error") await end(s, activity, at);
+            if (status === "running") await begin(s, activity, category, startAt);
+            if (status === "completed" || status === "error") await end(s, activity, endAt);
           } else if (partType === "text" || partType === "reasoning") {
             // Only observed streaming spans, not busy time or inferred provider
             // latency. Missing final updates leave an explicit open gap.
-            if (!finished) await begin(s, activity, "inference", at);
-            else await end(s, activity, at);
+            if (!finished) await begin(s, activity, "inference", startAt);
+            else await end(s, activity, endAt);
           }
         }, at);
       }
@@ -314,15 +341,28 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
       const status = p?.status?.type;
       const recognized = ["permission.asked", "permission.replied", "question.asked", "question.replied", "question.rejected", "session.status", "session.error"];
       if (!recognized.includes(type)) return Promise.resolve();
-      received(session, request, type.endsWith(".replied") || type.endsWith(".rejected"));
+      let invalidates = false;
+      const isWait = type.startsWith("permission.") || type.startsWith("question.");
+      if (isWait && validID(request)) {
+        const key = `${session}\0${request}`;
+        const next = type.endsWith(".asked") ? `${type.split(".")[0]}:${validID(target) ? target : ""}` : "closed";
+        const previous = waitReceipts.get(key);
+        invalidates = previous !== "closed" && previous !== next;
+        if (invalidates) waitReceipts.set(key, next);
+      } else if (type === "session.status" && ["busy", "idle", "retry"].includes(status)) {
+        const previous = statusReceipts.get(session);
+        invalidates = previous !== status && (previous === "retry" || status === "retry");
+        statusReceipts.set(session, status);
+      } else if (type === "session.error") invalidates = true;
+      const order = received(session, request, type.endsWith(".replied") || type.endsWith(".rejected"), invalidates);
       return serial(async () => {
         const s = await ensure(session, at);
-        if (s.recoveredAt !== undefined && at < s.recoveredAt) return;
         if (type.startsWith("permission.") || type.startsWith("question.")) {
           if (!validID(request)) return;
-          if (type.endsWith(".asked")) await begin(s, request, type.split(".")[0], at, validID(target) ? target : undefined);
-          else await end(s, request, at);
+          if (type.endsWith(".asked")) await begin(s, request, type.split(".")[0], Math.max(at, s.at), validID(target) ? target : undefined);
+          else await end(s, request, Math.max(at, s.at));
         } else if (type === "session.status") {
+          if (s.recoveredThrough !== undefined && order <= s.recoveredThrough) return;
           s.observedIdle = status === "idle";
           if (status === "retry") {
             if (!s.retry) s.retry = randomUUID();
@@ -343,7 +383,7 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
     async dispose() {
       await tail;
       // No fabricated stops on unload: dangling starts are queryable unknowns.
-      sessions.clear(); dispatches.clear(); childParents.clear(); freshChildren.clear(); correlationAttempts.clear(); generations.clear(); terminals.clear();
+      sessions.clear(); dispatches.clear(); childParents.clear(); freshChildren.clear(); correlationAttempts.clear(); generations.clear(); terminals.clear(); waitReceipts.clear(); statusReceipts.clear(); recoveryHooks.clear();
     },
   };
 }

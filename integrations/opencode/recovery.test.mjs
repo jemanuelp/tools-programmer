@@ -30,7 +30,7 @@ test("live terminal arriving during snapshot prevents stale restart", async () =
   const last = observer.event(terminal());
   finish(snapshot());
   await Promise.all([first, last]);
-  assert.equal(records.filter((e) => e.kind === "start").length, 0);
+  assert.equal(records.filter((e) => e.kind === "start" && e.activity === "independent").length, 0);
   assert.ok(records.some((e) => e.kind === "gap"));
   await observer.dispose();
 });
