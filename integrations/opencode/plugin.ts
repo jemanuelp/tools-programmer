@@ -1,7 +1,9 @@
 import { type Plugin, tool } from "@opencode-ai/plugin";
 import { createHash } from "node:crypto";
 import { createObserver } from "./observer.mjs";
-import { createRecorder } from "./transport.mjs";
+import { createRecorder, createDispatchLookup } from "./transport.mjs";
+import { createParentSnapshotReader } from "./parent-snapshot.mjs";
+import { createSessionSnapshotReader } from "./session-snapshot.mjs";
 
 // Explicit opt-in only. This file is outside auto-discovery directories.
 const plugin: Plugin = async (input, options) => {
@@ -11,7 +13,11 @@ const plugin: Plugin = async (input, options) => {
     throw new Error("tools-programmer observer requires binary and database options");
   }
   const runtime = createHash("sha256").update(JSON.stringify([input.serverUrl.origin, input.project.id, input.worktree])).digest("hex");
-  const observer = createObserver({ record: createRecorder(binary, database), runtime });
+  const observer = createObserver({ record: createRecorder(binary, database), runtime,
+    readParentDispatches: createParentSnapshotReader(input.client, input.directory),
+    readSessionState: createSessionSnapshotReader(input.client, input.directory, input.project.id),
+    lookupDispatch: createDispatchLookup(binary, database),
+  });
   const observe = async (operation: Promise<unknown>) => {
     try { await operation; }
     catch { console.error("tools-programmer observer: observation lost; timing is incomplete"); }

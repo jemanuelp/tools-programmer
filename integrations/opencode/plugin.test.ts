@@ -2,11 +2,44 @@ import { mock, test, expect } from "bun:test";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
+import { pathToFileURL } from "node:url";
+import { createParentSnapshotReader } from "./parent-snapshot.mjs";
 
 // Opt-in type/runtime package location, not a live OpenCode server. No package
 // download or persistent installation is performed by this fixture.
 const modulePath = process.env.OPENCODE_PLUGIN_MODULE;
 const enabled = Boolean(modulePath && isAbsolute(modulePath));
+
+(enabled ? test : test.skip)("installed v1 SDK supports the scoped streaming parent snapshot without host access", async () => {
+  const sdkPath = new URL("../../sdk/dist/index.js", pathToFileURL(modulePath!));
+  const { createOpencodeClient } = await import(sdkPath.href);
+  const requests: Request[] = [];
+  const client = createOpencodeClient({ baseUrl: "http://fixture.invalid", fetch: async (request: Request) => {
+    requests.push(request);
+    return new Response(JSON.stringify([{ info: { sessionID: "parent" }, parts: [{ type: "tool", tool: "task", sessionID: "parent", callID: "call", state: { status: "running", metadata: { parentSessionId: "parent", sessionId: "child" } } }] }]), { headers: { "Content-Type": "application/json" } });
+  } });
+  expect(await createParentSnapshotReader(client, "/fixture/project")("parent")).toEqual([{ callID: "call", childSessionID: "child" }]);
+  expect(requests.length).toBe(1);
+  const url = new URL(requests[0].url);
+  expect(requests[0].method).toBe("GET");
+  expect(url.pathname).toBe("/session/parent/message");
+  expect(url.searchParams.get("directory")).toBe("/fixture/project");
+  expect(url.searchParams.get("limit")).toBe("20");
+});
+
+(enabled ? test : test.skip)("installed SDK cannot parse an unbounded non-success body through the scoped reader", async () => {
+  const sdkPath = new URL("../../sdk/dist/index.js", pathToFileURL(modulePath!));
+  const { createOpencodeClient } = await import(sdkPath.href);
+  let cancelled = false; let pulls = 0; let authorization = "";
+  const client = createOpencodeClient({ baseUrl: "http://fixture.invalid", headers: { authorization: "fixture-credential" }, fetch: async (request: Request) => {
+    authorization = request.headers.get("authorization") ?? "";
+    return new Response(new ReadableStream({ pull(controller) { pulls++; controller.enqueue(new TextEncoder().encode("PRIVATE")); }, cancel() { cancelled = true; } }), { status: 503 });
+  } });
+  await expect(createParentSnapshotReader(client, "/fixture")("parent")).rejects.toThrow("Runtime snapshot incomplete or unavailable");
+  expect(cancelled).toBe(true);
+  expect(pulls).toBeLessThanOrEqual(1);
+  expect(authorization).toBe("fixture-credential");
+});
 
 (enabled ? test : test.skip)("loads against installed plugin package; assignment uses context, not model ID", async () => {
   const installed = await import(modulePath!);
