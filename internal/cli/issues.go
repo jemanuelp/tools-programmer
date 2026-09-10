@@ -22,6 +22,7 @@ const issueHelp = `Local issue history (no GitHub writes):
   issue outcome --issue-id ID --outcome completed|cancelled|reopened --actor NAME --rationale TEXT
   issue summary --project NAME --number N
   activity record < normalized-event.json
+  activity dispatch-show --runtime ID --session PARENT_ID --call CALL_ID (read-only)
 
 Confirmation is an explicit local declaration of human approval, not proof of
 human presence. Agents must never confirm their own proposals or infer consent.
@@ -36,6 +37,7 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 	var number, pr, score int
 	var issueID, proposalID int64
 	var confirmed bool
+	var runtime, session, call string
 	switch command {
 	case "issue add", "issue summary":
 		f.StringVar(&project, "project", "", "registered project")
@@ -66,6 +68,10 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 		f.StringVar(&actor, "actor", "", "actor identity")
 		f.StringVar(&rationale, "rationale", "", "outcome rationale")
 	case "activity record":
+	case "activity dispatch-show":
+		f.StringVar(&runtime, "runtime", "", "runtime namespace")
+		f.StringVar(&session, "session", "", "authoritative parent session")
+		f.StringVar(&call, "call", "", "authoritative task call ID")
 	default:
 		return nil, core.Fail("invalid_input", "unknown issue/activity command")
 	}
@@ -97,6 +103,11 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 		return nil, core.Fail("invalid_input", "valid outcome, actor and rationale required")
 	}
 	var event core.ActivityEvent
+	if command == "activity dispatch-show" {
+		if _, err := core.DispatchMarker(runtime, session, call); err != nil {
+			return nil, err
+		}
+	}
 	if command == "activity record" {
 		var err error
 		event, err = decodeActivity(in)
@@ -109,7 +120,7 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 		return nil, err
 	}
 	var db *store.Store
-	if command == "issue summary" {
+	if command == "issue summary" || command == "activity dispatch-show" {
 		db, err = store.OpenReadOnly(path)
 	} else {
 		db, err = store.Open(path)
@@ -136,6 +147,8 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 		return (&service.Service{Store: dbView}).IssueSummary(project, number)
 	case "activity record":
 		err = dbView.RecordActivity(event)
+	case "activity dispatch-show":
+		return dbView.Dispatch(runtime, session, call)
 	}
 	if err != nil {
 		return nil, err

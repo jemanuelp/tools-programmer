@@ -102,6 +102,10 @@ The adapter targets installed OpenCode **1.18.29** types/hooks. It uses raw `mes
 - The bounded queue/subprocess can lose observations under failure or overload. Subsequent successful recording marks an event-loss gap; errors are static diagnostics without payloads. A permanently stopped observer leaves unresolved starts, not continuing activity.
 - Configuration/type inspection, module tests and synthetic fixtures do not prove actual installed lifecycle accuracy. Completion of issue #1 acceptance requires separately authorized host sessions covering inference, waits, retries, delegation, failure, background/reused children and recovery. No provider spend, host restart or installation is part of the tests.
 
+### Durable dispatch lookup
+
+`activity dispatch-show --runtime ID --session PARENT_ID --call CALL_ID` is a narrow **local read-only** lookup. It validates bounded identifiers, uses parameterized SQL, checks persisted boundary consistency, and requires an existing v3 DB without creating or migrating it. The observer's subprocess lookup allows 3 seconds and 4 KiB output, passes no provider credentials, and is not exposed as an MCP mutation. A missing record returns null; conflicting records fail closed. A start marker durably written before interruption is sufficient provenance even if its zero-duration stop was not written; that incomplete marker remains an explicit unknown in history. Timestamp-tied assignment changes are rejected rather than invalidating an already recorded dispatch.
+
 ## Verification and rollback
 
 ```sh

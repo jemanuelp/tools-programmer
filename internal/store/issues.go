@@ -382,8 +382,8 @@ func (s *Store) RecordActivity(e core.ActivityEvent) error {
 			if err = db.QueryRowContext(ctx, "SELECT max(at) FROM activity_events WHERE runtime=? AND session=?", e.Runtime, e.Session).Scan(&observed); err != nil {
 				return err
 			}
-			if observed.Valid && e.At < observed.Int64 {
-				return core.Fail("assignment_order", "assignment cannot rewrite already observed work")
+			if observed.Valid && e.At <= observed.Int64 {
+				return core.Fail("assignment_order", "assignment must be strictly later than already observed work")
 			}
 			if _, err = db.ExecContext(ctx, "INSERT INTO activity_segments(runtime,session,segment,at,issue_id) VALUES(?,?,?,?,?)", e.Runtime, e.Session, e.Segment, e.At, issue); err != nil {
 				return core.Fail("segment_conflict", "execution segment already bound")
