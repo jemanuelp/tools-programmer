@@ -43,10 +43,12 @@ export function createSessionSnapshotReader(client, directory, projectID) {
       if (new Set(pending.map((w) => w.activity)).size !== pending.length) throw new Error("Ambiguous wait identity");
       return { running, closed, waits: pending, status, singleTurn };
     };
-    // No atomic snapshot API exists here. Require stable projected reads and
-    // let the observer's receive-generation fence reject concurrent events.
+    // Tool progress is expected while reading: use the newer tool projection.
+    // Wait/retry/provenance changes still make the read unsafe for inference;
+    // receive-ahead terminal evidence separately prevents stale tool revival.
     const first = await collect(); const second = await collect();
-    if (JSON.stringify(first) !== JSON.stringify(second)) throw new Error("Runtime state changed during read");
+    const controls = ({ waits, status, singleTurn }) => ({ waits, retrying: status === "retry", singleTurn });
+    if (JSON.stringify(controls(first)) !== JSON.stringify(controls(second))) throw new Error("Runtime control state changed during read");
     return { ...second, ...(info.parentID ? { parentSessionID: info.parentID } : {}) };
   });
 }

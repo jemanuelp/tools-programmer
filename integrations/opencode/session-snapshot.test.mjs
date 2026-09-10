@@ -33,13 +33,13 @@ test("bounded stable snapshot projects current tools and targeted waits, never h
   assert.ok(!JSON.stringify(result).includes("start"));
 });
 
-for (const failure of ["missing-question", "changed-state", "wrong-project"]) {
+for (const failure of ["missing-question", "changed-waits", "wrong-project"]) {
   test(`${failure} does not become an empty successful wait snapshot`, async () => {
-    let messages = 0;
+    let permissions = 0;
     const reader = createSessionSnapshotReader(runtimeFixture(async (options) => {
       if (failure === "missing-question" && options.url === "/question") return new Response("PRIVATE", { status: 503 });
       if (failure === "wrong-project" && options.url === "/session/{id}") return jsonResponse({ id: "s", projectID: "other" });
-      if (failure === "changed-state" && options.url.endsWith("/message") && ++messages === 2) return jsonResponse([]);
+      if (failure === "changed-waits" && options.url === "/permission" && ++permissions === 2) return jsonResponse([]);
       return jsonResponse(state(options));
     }), "/fixture", "project");
     await assert.rejects(reader("s"), { message: "Runtime snapshot incomplete or unavailable" });
