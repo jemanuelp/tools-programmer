@@ -338,8 +338,9 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
       if (!validID(session)) return Promise.resolve();
       const request = p?.id ?? p?.requestID;
       const target = p?.tool?.callID;
-      const status = p?.status?.type;
-      const recognized = ["permission.asked", "permission.replied", "question.asked", "question.replied", "question.rejected", "session.status", "session.error"];
+      const sessionStatus = type === "session.status" || type === "session.idle";
+      const status = type === "session.idle" ? "idle" : p?.status?.type;
+      const recognized = ["permission.asked", "permission.replied", "question.asked", "question.replied", "question.rejected", "session.status", "session.idle", "session.error"];
       if (!recognized.includes(type)) return Promise.resolve();
       let invalidates = false;
       const isWait = type.startsWith("permission.") || type.startsWith("question.");
@@ -349,7 +350,7 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
         const previous = waitReceipts.get(key);
         invalidates = previous !== "closed" && previous !== next;
         if (invalidates) waitReceipts.set(key, next);
-      } else if (type === "session.status" && ["busy", "idle", "retry"].includes(status)) {
+      } else if (sessionStatus && ["busy", "idle", "retry"].includes(status)) {
         const previous = statusReceipts.get(session);
         invalidates = previous !== status;
         statusReceipts.set(session, status);
@@ -361,7 +362,7 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
           if (!validID(request)) return;
           if (type.endsWith(".asked")) await begin(s, request, type.split(".")[0], Math.max(at, s.at), validID(target) ? target : undefined);
           else await end(s, request, Math.max(at, s.at));
-        } else if (type === "session.status") {
+        } else if (sessionStatus) {
           if (s.recoveredThrough !== undefined && order <= s.recoveredThrough) return;
           s.observedIdle = status === "idle";
           if (status === "retry") {
@@ -371,10 +372,13 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
             await end(s, s.retry, at);
             s.retry = undefined;
           }
+          if (status === "idle") {
+            for (const item of [...s.active.values()]) if (item.category === "inference") await end(s, item.activity, at);
+          }
           if (status === "busy") await gap(s, "uncertain_inference", at);
           if (status === "busy" && s.recoveryOK) s.inferenceKnown = true;
-          // Idle is not a tool terminal event, observation loss, or issue
-          // completion. Independently running tools can outlive this status.
+          // Idle closes observed inference, but not tools: independently
+          // running tools can outlive the session completion notification.
         } else if (type === "session.error") {
           await gap(s, "cancelled", at);
         }
