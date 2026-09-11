@@ -44,10 +44,10 @@ export function createSessionSnapshotReader(client, directory, projectID) {
       return { running, closed, waits: pending, status, singleTurn };
     };
     // Tool progress is expected while reading: use the newer tool projection.
-    // Wait/retry/provenance changes still make the read unsafe for inference;
+    // Wait/status/provenance changes still make the read unsafe for recovery;
     // receive-ahead terminal evidence separately prevents stale tool revival.
     const first = await collect(); const second = await collect();
-    const controls = ({ waits, status, singleTurn }) => ({ waits, retrying: status === "retry", singleTurn });
+    const controls = ({ waits, status, singleTurn }) => ({ waits, status, singleTurn });
     if (JSON.stringify(controls(first)) !== JSON.stringify(controls(second))) throw new Error("Runtime control state changed during read");
     return { ...second, ...(info.parentID ? { parentSessionID: info.parentID } : {}) };
   });

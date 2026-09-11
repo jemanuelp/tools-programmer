@@ -66,6 +66,60 @@ test("reader accepts pending-to-running tool progress while wait and retry proje
   assert.equal(calls, 9);
 });
 
+for (const previous of ["busy", undefined]) {
+  test(`idle after the last snapshot status read rejects stale tools with previous ${previous}`, async () => {
+    const records = []; let time = 1; let reads = 0;
+    const entered = gate(); const finish = gate();
+    const reader = createSessionSnapshotReader(runtimeFixture(async (options) => {
+      if (options.url === "/session/{id}") return jsonResponse({ id: "s", projectID: "p" });
+      if (options.url === "/session/status") return jsonResponse({ s: { type: "busy" } });
+      if (options.url.endsWith("/message")) return jsonResponse([{ info: { sessionID: "s", role: "assistant" }, parts: [tool(reads === 1 ? "stale" : "fresh", "running").properties.part] }]);
+      return jsonResponse([]);
+    }), "/fixture", "p");
+    const observer = createObserver({ runtime: "r", clock: () => time, record: async (e) => records.push(e), readSessionState: async (session) => {
+      reads++;
+      const snapshot = await reader(session);
+      // Both status observations are complete; hold the stale busy result before cutover.
+      if (reads === 1) { entered.release(); await finish.promise; }
+      return snapshot;
+    } });
+    const first = previous
+      ? observer.event({ type: "session.status", properties: { sessionID: "s", status: { type: previous } } })
+      : observer.before({ sessionID: "s", callID: "first", tool: "bash" });
+    await entered.promise;
+    time = 20; const idle = observer.event({ type: "session.status", properties: { sessionID: "s", status: { type: "idle" } } });
+    time = 100; finish.release(); await Promise.all([first, idle]);
+    assert.equal(records.filter((e) => e.kind === "start" && e.activity === "stale").length, 0);
+    assert.ok(records.some((e) => e.kind === "gap" && e.reason === "unsupported_lifecycle"));
+    time = 120; await observer.event({ type: "session.status", properties: { sessionID: "s", status: { type: "busy" } } });
+    assert.equal(reads, 1);
+    time = 150; await observer.before({ sessionID: "s", callID: "fresh", tool: "bash" });
+    await observer.before({ sessionID: "s", callID: "fresh", tool: "bash" });
+    time = 350; await observer.event(tool("fresh", "completed"));
+    assert.equal(reads, 2); assert.deepEqual(spans(records, "fresh"), [[150, 350]]);
+    assert.ok(records.every((e) => e.session === "s" && e.segment === records[0].segment));
+    assert.ok(records.some((e) => e.kind === "gap" && e.reason === "unsupported_lifecycle"));
+    await observer.dispose();
+  });
+}
+
+test("duplicate busy during recovery does not invalidate the snapshot", async () => {
+  const records = []; let time = 1; let reads = 0;
+  const entered = gate(); const finish = gate();
+  const observer = createObserver({ runtime: "r", clock: () => time, record: async (e) => records.push(e), readSessionState: async () => {
+    reads++; entered.release(); await finish.promise;
+    return { ...empty(), running: [{ activity: "independent", category: "tool" }] };
+  } });
+  const busy = { type: "session.status", properties: { sessionID: "s", status: { type: "busy" } } };
+  const first = observer.event(busy); await entered.promise;
+  time = 20; const duplicate = observer.event(busy);
+  time = 100; finish.release(); await Promise.all([first, duplicate]);
+  time = 300; await observer.event(tool("independent", "completed"));
+  assert.equal(reads, 1); assert.deepEqual(spans(records, "independent"), [[100, 300]]);
+  assert.ok(!records.some((e) => e.reason === "unsupported_lifecycle"));
+  await observer.dispose();
+});
+
 test("a fresh before hook retries a failed recovery once; duplicates and live events cannot spin", async () => {
   const records = []; let reads = 0; let time = 1;
   const observer = createObserver({ runtime: "r", clock: () => ++time, record: async (e) => records.push(e), readSessionState: async () => { if (++reads === 1) throw new Error("transient"); return empty(); } });

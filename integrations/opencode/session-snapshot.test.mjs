@@ -33,6 +33,16 @@ test("bounded stable snapshot projects current tools and targeted waits, never h
   assert.ok(!JSON.stringify(result).includes("start"));
 });
 
+test("busy-to-idle between snapshot passes rejects changed control state", async () => {
+  let statuses = 0;
+  const reader = createSessionSnapshotReader(runtimeFixture(async (options) => {
+    if (options.url === "/session/status") return jsonResponse({ s: { type: ++statuses === 1 ? "busy" : "idle" } });
+    return jsonResponse(state(options));
+  }), "/fixture", "project");
+  await assert.rejects(reader("s"), { message: "Runtime snapshot incomplete or unavailable" });
+  assert.equal(statuses, 2);
+});
+
 for (const failure of ["missing-question", "changed-waits", "wrong-project"]) {
   test(`${failure} does not become an empty successful wait snapshot`, async () => {
     let permissions = 0;

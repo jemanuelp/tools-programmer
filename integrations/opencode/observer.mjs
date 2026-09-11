@@ -351,7 +351,7 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
         if (invalidates) waitReceipts.set(key, next);
       } else if (type === "session.status" && ["busy", "idle", "retry"].includes(status)) {
         const previous = statusReceipts.get(session);
-        invalidates = previous !== status && (previous === "retry" || status === "retry");
+        invalidates = previous !== status;
         statusReceipts.set(session, status);
       } else if (type === "session.error") invalidates = true;
       const order = received(session, request, type.endsWith(".replied") || type.endsWith(".rejected"), invalidates);
