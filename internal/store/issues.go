@@ -420,13 +420,22 @@ func (s *Store) RecordActivity(e core.ActivityEvent) error {
 func readIssueActivity(ctx context.Context, db issueReader, issue int64) ([]core.ActivityEvent, []core.ActivitySegment, error) {
 	events := []core.ActivityEvent{}
 	segments := []core.ActivitySegment{}
-	rows, err := db.QueryContext(ctx, `SELECT s.runtime,s.session,s.segment,s.at,s.issue_id,(SELECT min(n.at) FROM activity_segments n WHERE n.runtime=s.runtime AND n.session=s.session AND n.at>s.at) FROM activity_segments s WHERE s.issue_id=? ORDER BY s.runtime,s.session,s.at`, issue)
+	rows, err := db.QueryContext(ctx, `WITH ordered AS (
+		SELECT runtime,session,segment,at,issue_id,
+			LEAD(at) OVER (PARTITION BY runtime,session ORDER BY at) AS accounting_until,
+			LEAD(issue_id) OVER (PARTITION BY runtime,session ORDER BY at) AS next_issue_id
+		FROM activity_segments
+	)
+	SELECT runtime,session,segment,at,issue_id,
+		CASE WHEN next_issue_id=issue_id THEN accounting_until END,
+		accounting_until
+	FROM ordered WHERE issue_id=? ORDER BY runtime,session,at`, issue)
 	if err != nil {
 		return nil, nil, err
 	}
 	for rows.Next() {
 		var s core.ActivitySegment
-		err = rows.Scan(&s.Runtime, &s.Session, &s.Segment, &s.At, &s.IssueID, &s.Until)
+		err = rows.Scan(&s.Runtime, &s.Session, &s.Segment, &s.At, &s.IssueID, &s.Until, &s.AccountingUntil)
 		if err != nil {
 			break
 		}

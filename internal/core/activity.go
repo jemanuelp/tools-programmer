@@ -34,6 +34,9 @@ type ActivitySegment struct {
 	At      int64  `json:"at"`
 	Until   *int64 `json:"until,omitempty"`
 	IssueID *int64 `json:"issue_id"`
+	// AccountingUntil clips intervals at the next native-session segment
+	// without exposing a later issue's history in this issue's JSON.
+	AccountingUntil *int64 `json:"-"`
 }
 
 type ObservationGap struct {
@@ -234,8 +237,12 @@ func CalculateActivity(events []ActivityEvent, segments []ActivitySegment) Activ
 			if x.start < s.At {
 				x.start = s.At
 			}
-			if s.Until != nil && x.end > *s.Until {
-				x.end = *s.Until
+			until := s.AccountingUntil
+			if until == nil {
+				until = s.Until
+			}
+			if until != nil && x.end > *until {
+				x.end = *until
 			}
 		}
 		spans = append(spans, span{p.e, x})
