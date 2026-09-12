@@ -1,10 +1,87 @@
 package lab
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
+
+func (r *Runtime) reconnect(ctx context.Context, between func() error) error {
+	for i := 0; i < 2; i++ {
+		if err := r.connectedEvent(ctx); err != nil {
+			return err
+		}
+		if i == 0 {
+			if err := between(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) connectedEvent(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", r.origin+"/event?directory="+url.QueryEscape(r.root+"/repo"), nil)
+	if err != nil {
+		return errors.New("sse_request")
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	res, err := r.client.Do(req)
+	if err != nil {
+		return errors.New("sse_transport")
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return errors.New("sse_status")
+	}
+	media, _, err := mime.ParseMediaType(res.Header.Get("Content-Type"))
+	if err != nil || media != "text/event-stream" {
+		return errors.New("sse_content_type")
+	}
+	// Bound the entire handshake, including comments and ignored fields, to
+	// 64 KiB and 32 frames. The existing client/case deadlines bound reads.
+	reader := bufio.NewReader(io.LimitReader(res.Body, 64<<10))
+	data := ""
+	for frames := 0; frames < 32; {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return errors.New("sse_incomplete_or_bound")
+		}
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		if line != "" {
+			field, value, _ := strings.Cut(line, ":")
+			if field == "data" {
+				data += strings.TrimPrefix(value, " ") + "\n"
+			}
+			continue
+		}
+		frames++
+		if data == "" {
+			continue
+		}
+		// Pinned SDK EventServerConnected: type plus object properties.
+		// Require a complete native connection event, not merely SSE headers.
+		var event struct {
+			Type       string         `json:"type"`
+			Properties map[string]any `json:"properties"`
+		}
+		if json.Unmarshal([]byte(data), &event) != nil || event.Type == "" || event.Properties == nil {
+			return errors.New("sse_event")
+		}
+		if event.Type == "server.connected" {
+			return ctx.Err()
+		}
+		data = ""
+	}
+	return errors.New("sse_event_bound")
+}
 
 func (f *fixture) startLong() (string, error) {
 	id, err := f.assigned()
@@ -161,21 +238,16 @@ func reconnectScenario(f *fixture, r *Result) error {
 	}
 	// The plugin subscribes to the server event bridge, not this external SSE
 	// connection. A UI transport reconnect alone must not invent a recovery gap.
-	res, err := f.runtime.client.Get(f.runtime.origin + "/event")
-	if err != nil {
-		return errors.New("sse_connect")
-	}
-	res.Body.Close()
-	a, err := f.summary(1)
-	if err != nil {
+	var before []byte
+	if err := f.runtime.reconnect(f.ctx, func() error {
+		a, err := f.summary(1)
+		if err == nil {
+			before, err = json.Marshal(a)
+		}
+		return err
+	}); err != nil {
 		return err
 	}
-	before, _ := json.Marshal(a)
-	res, err = f.runtime.client.Get(f.runtime.origin + "/event")
-	if err != nil {
-		return errors.New("sse_reconnect")
-	}
-	res.Body.Close()
 	b, err := f.summary(1)
 	if err != nil {
 		return err
