@@ -140,7 +140,7 @@ Route evidence: tagged [permission GET](https://github.com/anomalyco/opencode/bl
 - Restart cannot recover an ephemeral event stream. Bounded current-state reconciliation restarts only provable current observations; old incomplete intervals remain gaps. Dispatches never durably recorded, ambiguous queued child runs and unreported bus loss are not reconstructed.
 - Out-of-order normalized start/stop ingestion is supported. Arbitrarily reordered raw runtime notifications, multiple observer instances, cancellation edge cases and reconnect behavior are **not certified**. Ambiguity is incomplete evidence, not successful work.
 - The bounded queue/subprocess can lose observations under failure or overload. Subsequent successful recording marks an event-loss gap; errors are static diagnostics without payloads. A permanently stopped observer leaves unresolved starts, not continuing activity.
-- Configuration/type inspection, module tests and synthetic fixtures do not prove actual installed lifecycle accuracy. Completion of issue #1 acceptance requires separately authorized host sessions covering inference, waits, retries, delegation, failure, background/reused children and recovery. No provider spend, host restart or installation is part of the tests.
+- Configuration/type inspection, module tests and synthetic fixtures do not prove actual installed lifecycle accuracy. Remaining runtime acceptance is tracked separately in issues #3–#5, with reusable regression scenarios in #2. No provider spend, host restart or global installation is part of the fixture tests.
 
 ## Verification and rollback
 
