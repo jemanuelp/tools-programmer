@@ -4,6 +4,8 @@ A Go command-line tool for **local PR review history** and **explicit, SHA-bound
 
 Local **issue estimates and agent activity** are also available: [issue workflow and experimental OpenCode observer](docs/issues.md). Estimates use human-confirmed Fibonacci **1, 2, 3, 5, 8, 13, 21**, never hours. Runtime accuracy is not certified; summaries expose unknown observation gaps rather than fabricating time.
 
+For selectable, isolated runtime regression work, see the [Docker/Ubuntu integration laboratory](docs/lab.md). Preparation is explicit; default runs use only a controlled local provider, never paid credentials.
+
 **A local `approved` verdict is not a published GitHub approval. Green CI is not a technical review.** The tool records declarations and applies authorized actions; it cannot decide that a human or agent actually reviewed code.
 
 ## Build and first review

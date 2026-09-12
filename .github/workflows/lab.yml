@@ -1,0 +1,56 @@
+name: Integration laboratory
+on:
+  pull_request:
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'integrations/opencode/**'
+      - 'lab/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/lab.yml'
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'Comma-separated noninteractive scenario IDs; nonpasses fail the job'
+        default: 'contracts,permission-denial,silent,egress,missing-dependencies,source-control,contamination,timeout-cleanup'
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: laboratory-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  controlled:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SCENARIOS: ${{ inputs.scenarios || 'contracts,permission-denial,silent,egress,missing-dependencies,source-control,contamination,timeout-cleanup' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.8'
+      - name: Explicit host build and focused tests
+        run: |
+          go mod download
+          go test ./internal/lab ./internal/cli ./internal/mcpserver
+          go build -trimpath -o bin/tools-programmer-lab ./cmd/tools-programmer-lab
+      - name: Explicit network-enabled image preparation
+        timeout-minutes: 12
+        run: bin/tools-programmer-lab prepare --source .
+      - name: Selected isolated runtime scenarios
+        timeout-minutes: 11
+        run: bin/tools-programmer-lab run --source . --output "$RUNNER_TEMP/lab-report" --scenarios "$SCENARIOS" --timeout 10m
+      - name: Retain only scrubbed evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: controlled-laboratory
+          path: |
+            ${{ runner.temp }}/lab-report/report.json
+            ${{ runner.temp }}/lab-report/report.md
+          retention-days: 7
+          if-no-files-found: warn
