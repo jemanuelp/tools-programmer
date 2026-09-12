@@ -131,6 +131,8 @@ To upgrade: independently resolve the official manifest/checksums, update the Do
 
 ## CI and future regressions
 
+`.github/workflows/lab.yml` runs a selected noninteractive subset, with a 25-minute job deadline and seven-day retention of only the two scrubbed report files. Manual dispatch can select other registered cases; human-required cases remain nonpasses unattended. No paid provider or GUI client is enabled by CI.
+
 To add a regression, add one function taking the existing fixture and result, register a deterministic ID in `scenarios.go`, and keep tests beside the behavior. Reuse lifecycle, provider and privacy boundaries; do not copy a private lab or introduce a second orchestration framework. Assert expected success from actual terminal state before advancing provider stages. Read resolved segment assignment rather than an event's original payload issue. Keep unknown setup activity unassigned; never inject normalized events and call them automatic observation.
 
 ```sh
