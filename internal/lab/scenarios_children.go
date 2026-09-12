@@ -369,9 +369,6 @@ func backgroundScenario(f *fixture, r *Result) error {
 	}); err != nil {
 		return err
 	}
-	if err := boundedPause(f.ctx, 500*time.Millisecond); err != nil {
-		return err
-	}
 	parts, err = f.runtime.parts(id)
 	if err != nil {
 		return err
@@ -404,9 +401,7 @@ func backgroundScenario(f *fixture, r *Result) error {
 		return err
 	}
 	// A second quiescent invocation proves background child reuse as well.
-	f.runtime.provider.add("background-reuse", []Call{sleepCall(1)})
-	f.runtime.provider.add("reuse-parent", []Call{taskCall("background-reuse", false, child)})
-	if err := f.runtime.prompt(id, "reuse-parent"); err != nil {
+	if err := f.runtime.reuseBackground(f.ctx, id, child); err != nil {
 		return err
 	}
 	if err := f.runtime.complete("reuse-parent"); err != nil {
@@ -424,4 +419,27 @@ func backgroundScenario(f *fixture, r *Result) error {
 		return err
 	}
 	return f.parity(r, 2)
+}
+
+func (r *Runtime) reuseBackground(ctx context.Context, parent, child string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := wait(ctx, func() (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if e := r.provider.failure(); e != "" {
+			return false, errors.New(e)
+		}
+		return r.quiescent(ctx, parent, child)
+	}); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.provider.add("background-reuse", []Call{sleepCall(1)})
+	r.provider.add("reuse-parent", []Call{taskCall("background-reuse", false, child)})
+	view := &Runtime{ctx: ctx, root: r.root, origin: r.origin, client: r.client}
+	return view.prompt(parent, "reuse-parent")
 }
