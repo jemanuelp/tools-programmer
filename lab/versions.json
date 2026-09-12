@@ -1,0 +1,25 @@
+{
+  "platform": "linux/amd64",
+  "ubuntu": "ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61",
+  "ubuntu_snapshot": "20260910T000000Z",
+  "ubuntu_manifest_media_type": "application/vnd.oci.image.manifest.v1+json",
+  "ubuntu_config_digest": "sha256:b2b7ea366714195a1e1c5b2b578ece85c0b3920381a8654d038d9684f009613c",
+  "bootstrap_ca_url": "https://curl.se/ca/cacert-2026-08-13.pem",
+  "bootstrap_ca_sha256": "f66dff1bdf8f96060b8177976f8b7d9254bc89bc4db933d769f7384d28480bc9",
+  "go": "1.26.8",
+  "go_sha256": "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b",
+  "node": "24.18.0",
+  "node_sha256": "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742",
+  "opencode": "1.18.30",
+  "opencode_sha256": "60c92147d0d86ca606dda8a77260d3c87e0ef959eb2d8dbffb34df6d8a64e063",
+  "verified_metadata_date": "2026-09-12",
+  "sources": [
+    "Docker Hub registry v2: SHA-256 of 424 manifest bytes equals Docker-Content-Digest under both OCI and Docker-v2 Accept headers; hash-verified config declares linux/amd64",
+    "docker buildx imagetools inspect ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61",
+    "https://curl.se/ca/cacert-2026-08-13.pem.sha256 (downloaded PEM hash checked; isolated trust context verifies snapshot HTTPS)",
+    "https://go.dev/dl/?mode=json",
+    "https://nodejs.org/dist/v24.18.0/SHASUMS256.txt",
+    "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.18.30",
+    "https://registry.npmjs.org/@opencode-ai/plugin/1.18.30"
+  ]
+}

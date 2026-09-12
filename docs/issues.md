@@ -1,5 +1,7 @@
 # Estimate issues locally; measure only observed agent activity
 
+Issue #1 is closed for its delivered scope. Reusable regression infrastructure belongs to [the laboratory](lab.md) (#2); genuine human-wait (#3), cancellation/restart (#4) and actual OpenChamber (#5) acceptance remain separate and pending. Lab construction does not certify those behaviors.
+
 Issue estimates and runtime observations live in the existing private SQLite database. Nothing is published to GitHub. The CLI and read-only MCP use the same `Service.IssueSummary` and a consistent SQLite read snapshot. **The observer is experimental: fixture tests do not establish accuracy on a live OpenCode/OpenChamber host.**
 
 ## Quick path

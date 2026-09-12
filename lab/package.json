@@ -1,0 +1,9 @@
+{
+  "name": "tools-programmer-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.30"
+  }
+}
