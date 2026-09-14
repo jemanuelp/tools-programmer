@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"os"
@@ -62,8 +63,41 @@ func TestMCPValidationBeforeSideEffects(t *testing.T) {
 	}
 }
 
+// Build the historical schema directly: opening through store.Open would migrate it.
+func mcpV2Fixture(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+CREATE TABLE projects(name TEXT PRIMARY KEY, repo TEXT NOT NULL UNIQUE, path TEXT NOT NULL, allow_no_checks INTEGER NOT NULL CHECK(allow_no_checks IN (0,1)), created_at TEXT NOT NULL);
+CREATE TABLE snapshots(project TEXT NOT NULL REFERENCES projects(name), pr INTEGER NOT NULL CHECK(pr>0), payload TEXT NOT NULL, PRIMARY KEY(project,pr));
+CREATE TABLE local_reviews(id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL REFERENCES projects(name), pr INTEGER NOT NULL CHECK(pr>0), sha TEXT NOT NULL, reviewer TEXT NOT NULL, method TEXT NOT NULL, outcome TEXT NOT NULL CHECK(outcome IN ('approved','changes_requested','incomplete')), summary TEXT NOT NULL, evidence TEXT NOT NULL, recorded_at TEXT NOT NULL);
+CREATE INDEX review_head ON local_reviews(project,pr,sha,id);
+CREATE TABLE plans(id TEXT PRIMARY KEY, project TEXT NOT NULL REFERENCES projects(name), payload TEXT NOT NULL);
+CREATE TABLE operations(id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES plans(id), project TEXT NOT NULL REFERENCES projects(name), pr INTEGER NOT NULL, sha TEXT NOT NULL, actor TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('intent','unknown','confirmed')), review_id INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(project,pr,sha,actor));
+CREATE TABLE confirmations(operation_id TEXT PRIMARY KEY REFERENCES operations(id), payload TEXT NOT NULL);
+ALTER TABLE projects ADD COLUMN expected_github TEXT NOT NULL DEFAULT '';
+ALTER TABLE projects ADD COLUMN git_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE projects ADD COLUMN git_email TEXT NOT NULL DEFAULT '';
+PRAGMA user_version=2;
+INSERT INTO projects VALUES('legacy','example/legacy','',0,'2026-01-01','reviewer','Reviewer','reviewer@example.com');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version, activityTables int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+		t.Fatal("fixture is not v2", version, err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name IN ('issues','activity_events','activity_segments')").Scan(&activityTables); err != nil || activityTables != 0 {
+		t.Fatal("fixture contains v3 tables", activityTables, err)
+	}
+}
+
 func TestMCPNeverInitializesOrMigrates(t *testing.T) {
-	for _, kind := range []string{"missing-parent", "missing-file", "v1", "future", "corrupt", "v2-eof"} {
+	for _, kind := range []string{"missing-parent", "missing-file", "v1", "future", "corrupt", "v2", "current-eof"} {
 		t.Run(kind, func(t *testing.T) {
 			home := mcpHome(t)
 			path := filepath.Join(home, "private", "history.db")
@@ -72,12 +106,15 @@ func TestMCPNeverInitializesOrMigrates(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if kind == "v1" || kind == "future" || kind == "v2-eof" {
+			if kind == "v2" {
+				mcpV2Fixture(t, path)
+			}
+			if kind == "v1" || kind == "future" || kind == "current-eof" {
 				db, err := store.Open(path)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if kind != "v2-eof" {
+				if kind != "current-eof" {
 					version := "1"
 					if kind == "future" {
 						version = "99"
@@ -93,10 +130,13 @@ func TestMCPNeverInitializesOrMigrates(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			before, _ := os.ReadFile(path)
+			before, readErr := os.ReadFile(path)
+			if kind != "missing-parent" && kind != "missing-file" && readErr != nil {
+				t.Fatal(readErr)
+			}
 			var stdout, stderr bytes.Buffer
 			code := RunWithIO(context.Background(), []string{"--db", path, "mcp", "serve"}, io.NopCloser(strings.NewReader("")), &stdout, &stderr, nil)
-			if kind == "v2-eof" {
+			if kind == "current-eof" {
 				if code != 0 || stderr.Len() != 0 {
 					t.Fatalf("EOF failure: %d %s", code, &stderr)
 				}
@@ -106,7 +146,10 @@ func TestMCPNeverInitializesOrMigrates(t *testing.T) {
 			if stdout.Len() != 0 || strings.Contains(stderr.String(), "SECRET_CORRUPT_DB") {
 				t.Fatal("unsafe output", &stdout, &stderr)
 			}
-			after, _ := os.ReadFile(path)
+			after, readErr := os.ReadFile(path)
+			if before != nil && readErr != nil {
+				t.Fatal(readErr)
+			}
 			if !bytes.Equal(before, after) {
 				t.Fatal("state modified")
 			}
@@ -233,7 +276,7 @@ func TestBinaryMCPInstalledCommandAndLifecycle(t *testing.T) {
 		t.Fatal("no initialization")
 	}
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 5 {
+	if err != nil || len(list.Tools) != 8 {
 		t.Fatalf("%+v %v", list, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_list"})

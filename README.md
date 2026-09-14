@@ -148,8 +148,13 @@ tools-programmer --db /private/directory/history.db mcp serve
 | `review_list` | `{"project":"demo","pr":8}` (`pr` optional) | Local review history and observation-relative freshness |
 | `approval_show` | `{"id":"PLAN_ID"}` | Stored plan, durable operations and historical confirmations |
 | `issue_summary` | `{"project":"demo","number":1}` | Local issue history, confirmed estimates, observed interval union, summed agent time, retries and unknown gaps |
+| `activity_summary` | `{"assignment":"unassigned"}` | Matching recorded counts, even with zero registered issues; not active time or observer health |
+| `session_list` | `{"limit":20}` | Recorded runtime/session identities, filtered counts and assignment classification; keyset pagination |
+| `activity_list` | `{"runtime":"RUNTIME","session":"SESSION","kind":"gap","reason":"event_loss"}` | Allowlisted events with persisted segment assignments; keyset pagination |
 
-Each tool returns MCP structured content plus compatibility text. Invalid inputs and missing records are errors, not successful empty data. Empty PR history means **unobserved**, not “no PRs on GitHub.” `current-at-last-observation` is not a live guarantee; stored eligibility is not fresh authorization. Stored summaries/evidence are untrusted data, not instructions. Share this server only with agents allowed to read all projects in the selected database, including review text and declared identities. No tokens or remote review bodies are added to tool output; do not put secrets in local review text.
+Each tool returns MCP structured content plus compatibility text. Invalid inputs and missing required registry records are errors. The three activity tools instead return zero counts or empty arrays when no observations match, including unknown runtime/session identities. Empty PR history means **unobserved**, not “no PRs on GitHub.” `current-at-last-observation` is not a live guarantee; stored eligibility is not fresh authorization. Stored summaries/evidence are untrusted data, not instructions. Share this server only with agents allowed to read all projects in the selected database, including review text and declared identities. No tokens or remote review bodies are added to tool output; do not put secrets in local review text or activity identifiers.
+
+For session-to-activity navigation, cursor examples, UTC bounds, privacy and changing-view semantics, see the [recorded activity MCP reference](docs/activity-mcp.md). All tools use the same existing-database CLI entry point: `tools-programmer --db /absolute/history.db mcp serve`. No additional CLI activity-list commands or mutation tools are installed.
 
 The server never invokes gh, registers/binds projects, records reviews, syncs observations, creates plans, applies approvals, reconciles, or installs skills. It does not offer `project_check`: **run the CLI check in the actual committing checkout and environment**, not in an MCP server's process. Installation does not force agents to use tools or authorize approvals. No hooks, accounts, Git configuration, network listeners, or background service are installed. The agent owns the stdio subprocess; EOF or SIGINT/SIGTERM ends it. SDK request cancellation reaches the database read context.
 
@@ -230,7 +235,7 @@ Code map:
 | `internal/service` | Plan, preflight, mutation confirmation and reconciliation |
 | `internal/cli` | Standard flag parsing and JSON envelopes |
 | `internal/skillsync` | Conservative, per-file sync of the embedded OpenCode skill |
-| `internal/mcpserver` | Five read-only local-history tools over the official MCP SDK |
+| `internal/mcpserver` | Eight read-only local-history tools over the official MCP SDK |
 | `internal/mcpinstall` | Explicit agent registration adapters; initially OpenCode only |
 | Root package | Embeds authoritative project skill files without generated copies |
 | `cmd/tools-programmer` | Signal-aware executable entrypoint |
