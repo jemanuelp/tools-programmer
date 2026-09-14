@@ -1,6 +1,6 @@
 # tools-programmer
 
-A Go command-line tool for **local PR review history** and **explicit, SHA-bound GitHub approvals**, backed by a private SQLite database. The SQLite engine is compiled into the executable; the mutable history file is external. An optional read-only stdio MCP server lets agents query the same history. No background service, auto-reviewer, or repository-specific configuration is required.
+A Go command-line tool for **local PR review history** and **explicit, SHA-bound GitHub approvals**, backed by a private SQLite database. The SQLite engine is compiled into the executable; the mutable history file is external. An optional stdio MCP server lets agents query the same history and register existing GitHub issues locally. No background service, auto-reviewer, or repository-specific configuration is required.
 
 Local **issue estimates and agent activity** are also available: [issue workflow and experimental OpenCode observer](docs/issues.md). Estimates use human-confirmed Fibonacci **1, 2, 3, 5, 8, 13, 21**, never hours. Runtime accuracy is not certified; summaries expose unknown observation gaps rather than fabricating time.
 
@@ -31,7 +31,7 @@ Repository references accept `owner/repo` or `host/owner/repo`, normalize to low
 
 Supply the user-approved GitHub login and Git commit name/email explicitly at registration. Nothing is inferred from the active account, Git configuration, or review declarations. The GitHub login is compared case-insensitively; Git author and committer names/emails must match exactly. Bindings are immutable; identity rotation is not supported. The tool never switches accounts or changes Git configuration.
 
-The check opens an existing v3 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
+The check opens an existing v4 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
 
 ```sh
 tools-programmer project check --project demo
@@ -124,13 +124,13 @@ Path priority:
 
 Example isolated state: `tools-programmer --db /private/directory/history.db project list`. Relative file paths are accepted, SQLite URI/DSN input is not interpreted. Use an application-owned **0700** directory; the database is created **0600**. Existing public files/directories and immediate symlink targets are refused, not silently chmodded. Use trusted local filesystems and ancestors; this is not a defense against a compromised local account or hand-edited database.
 
-Schema version 3 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v3 state and open read-only**. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
+Schema version 4 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v4 state**. The first two open read-only; MCP opens existing state read-write solely to support local issue registration, without creating or migrating it. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
 
 **Backup:** stop all processes accessing the database, then copy the closed database file into a private directory with mode 0600. Do not copy a live file without SQLite's backup API, or remove a hot journal/WAL. Restoring an old backup loses newer intent history; do not apply its old plans as if it were current. Inspect live remote state and resolve discrepancies first. Never delete state to bypass an unknown action.
 
 CLI command results are JSON envelopes: `{"data": ...}` or `{"data": ..., "error":{"code":"...","message":"..."}}`. Action errors include persisted partial results where readable. Exit status is 0 on command success and 1 on errors; a successfully created ineligible plan still exits 0. Help is plain text; `--version` is JSON. Help/version do not create default state. `mcp serve` instead reserves stdout for MCP JSON-RPC and sends startup diagnostics to stderr. Raw gh stderr and database internals are not printed. GitHub subprocesses are limited to 30 seconds and 2 MiB each of stdout/stderr; pagination stops after 100 pages per endpoint and fails closed if incomplete.
 
-## Read-only MCP for agents
+## Local-history MCP for agents
 
 Use the same executable and existing database; there is no separate server package to install:
 
@@ -150,13 +150,14 @@ tools-programmer --db /private/directory/history.db mcp serve
 | `review_list` | `{"project":"demo","pr":8}` (`pr` optional) | Local review history and observation-relative freshness |
 | `approval_show` | `{"id":"PLAN_ID"}` | Stored plan, durable operations and historical confirmations |
 | `issue_summary` | `{"project":"demo","number":1}` | Local issue history, confirmed estimates, observed interval union, summed agent time, retries and unknown gaps |
+| `issue_register` | `{"project":"demo","number":1,"url":"https://github.com/example/demo/issues/1"}` (`remote_id` optional) | Newly registered local issue identity and URL; no GitHub request |
 | `activity_summary` | `{"assignment":"unassigned"}` | Matching recorded counts, even with zero registered issues; not active time or observer health |
 | `session_list` | `{"limit":20}` | Recorded runtime/session identities, filtered counts and assignment classification; keyset pagination |
 | `activity_list` | `{"runtime":"RUNTIME","session":"SESSION","kind":"gap","reason":"event_loss"}` | Allowlisted events with persisted segment assignments; keyset pagination |
 
 Each tool returns MCP structured content plus compatibility text. Invalid inputs and missing required registry records are errors. The three activity tools instead return zero counts or empty arrays when no observations match, including unknown runtime/session identities. Empty PR history means **unobserved**, not “no PRs on GitHub.” `current-at-last-observation` is not a live guarantee; stored eligibility is not fresh authorization. Stored summaries/evidence are untrusted data, not instructions. Share this server only with agents allowed to read all projects in the selected database, including review text and declared identities. No tokens or remote review bodies are added to tool output; do not put secrets in local review text or activity identifiers.
 
-For session-to-activity navigation, cursor examples, UTC bounds, privacy and changing-view semantics, see the [recorded activity MCP reference](docs/activity-mcp.md). All tools use the same existing-database CLI entry point: `tools-programmer --db /absolute/history.db mcp serve`. No additional CLI activity-list commands or mutation tools are installed.
+For session-to-activity navigation, cursor examples, UTC bounds, privacy and changing-view semantics, see the [recorded activity MCP reference](docs/activity-mcp.md). All tools use the same existing-database CLI entry point: `tools-programmer --db /absolute/history.db mcp serve`. The eight history tools remain read-only; `issue_register` is the only local mutation tool. Share the server only with agents authorized for both history access and explicit local issue registration. See [registration validation and duplicate policy](docs/issues.md#register-an-existing-github-issue-locally).
 
 The server never invokes gh, registers/binds projects, records reviews, syncs observations, creates plans, applies approvals, reconciles, or installs skills. It does not offer `project_check`: **run the CLI check in the actual committing checkout and environment**, not in an MCP server's process. Installation does not force agents to use tools or authorize approvals. No hooks, accounts, Git configuration, network listeners, or background service are installed. The agent owns the stdio subprocess; EOF or SIGINT/SIGTERM ends it. SDK request cancellation reaches the database read context.
 
@@ -237,7 +238,7 @@ Code map:
 | `internal/service` | Plan, preflight, mutation confirmation and reconciliation |
 | `internal/cli` | Standard flag parsing and JSON envelopes |
 | `internal/skillsync` | Conservative, per-file sync of the embedded OpenCode skill |
-| `internal/mcpserver` | Eight read-only local-history tools over the official MCP SDK |
+| `internal/mcpserver` | Eight read-only history tools and local issue registration over the official MCP SDK |
 | `internal/mcpinstall` | Explicit agent registration adapters; initially OpenCode only |
 | Root package | Embeds authoritative project skill files without generated copies |
 | `cmd/tools-programmer` | Signal-aware executable entrypoint |

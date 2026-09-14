@@ -1,15 +1,28 @@
 package core
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 type Issue struct {
 	ID               int64  `json:"id"`
 	Project          string `json:"project"`
 	Repository       string `json:"repository"`
 	Number           int    `json:"number"`
+	URL              string `json:"url"`
 	RemoteID         string `json:"remote_id,omitempty"`
 	RemoteObservedAt string `json:"remote_observed_at,omitempty"`
 	CreatedAt        string `json:"created_at"`
+}
+
+// ValidateIssueURL accepts only canonical HTTPS identities, including enterprise hosts.
+// Empty URLs represent legacy registrations; callers may require a URL at their boundary.
+func ValidateIssueURL(repository string, number int, value string) error {
+	if value != "" && value != "https://"+repository+"/issues/"+strconv.Itoa(number) {
+		return Fail("invalid_input", "url must be the canonical HTTPS issue URL matching the registered repository and number (no credentials, port, query, fragment or trailing slash)")
+	}
+	return nil
 }
 
 type Estimate struct {
