@@ -47,6 +47,8 @@ Schema v2 adds three identity columns transactionally, with empty defaults. Exis
 
 Schema v3 adds issue/estimation/activity tables and append-only guards. Ordinary writable open migrates v1/v2 additively; existing approval operations, including unknown outcomes, are untouched. No reset command or automatic deletion is introduced. Older binaries reject the newer schema; do not downgrade the database to make them run.
 
+Schema v4 adds `issues.url` with an empty-string default. Existing issue IDs, activity references and append-only guards are preserved. Missing URLs remain `"url":""` in registration and summary output; they are not inferred or backfilled. Upgrade explicitly through an ordinary CLI command before launching MCP; MCP does not migrate state.
+
 After explicit user approval of the identities, confirm the existing repository when binding:
 
 ```sh
