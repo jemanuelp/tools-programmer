@@ -65,12 +65,12 @@ func history(t *testing.T) (*store.Store, string) {
 	return db, path
 }
 
-func connect(t *testing.T, db *store.Store) (*mcp.ClientSession, context.Context) {
+func connect(t *testing.T, db *store.Store, options ...Options) (*mcp.ClientSession, context.Context) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	a, b := mcp.NewInMemoryTransports()
 	done := make(chan error, 1)
-	go func() { done <- New(db).Run(ctx, a) }()
+	go func() { done <- New(db, options...).Run(ctx, a) }()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
 	session, err := client.Connect(ctx, b, nil)
 	if err != nil {

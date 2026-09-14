@@ -194,6 +194,14 @@ PRAGMA user_version=1;
 `
 
 func (s *Store) AddProject(p core.Project) (core.Project, error) {
+	return s.AddProjectContext(context.Background(), p)
+}
+
+// AddProjectContext declares explicit bindings atomically; it never checks remote access.
+func (s *Store) AddProjectContext(ctx context.Context, p core.Project) (core.Project, error) {
+	if err := ctx.Err(); err != nil {
+		return p, err
+	}
 	if err := p.ValidateIdentity(); err != nil {
 		return p, err
 	}
@@ -212,11 +220,23 @@ func (s *Store) AddProject(p core.Project) (core.Project, error) {
 		}
 	}
 	p.CreatedAt = core.Now()
-	_, err = s.DB.Exec("INSERT INTO projects(name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email) VALUES(?,?,?,?,?,?,?,?)", p.Name, p.Repo, p.Path, p.AllowNoChecks, p.CreatedAt, p.ExpectedGitHub, p.GitName, p.GitEmail)
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
+		return p, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, "INSERT INTO projects(name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING", p.Name, p.Repo, p.Path, p.AllowNoChecks, p.CreatedAt, p.ExpectedGitHub, p.GitName, p.GitEmail)
+	if err != nil {
+		return p, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return p, err
+	}
+	if n == 0 {
 		return p, core.Fail("project_conflict", "cannot register project; name or repository may already exist")
 	}
-	return p, nil
+	return p, tx.Commit()
 }
 func (s *Store) Project(name string) (core.Project, error) {
 	var p core.Project
