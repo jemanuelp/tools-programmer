@@ -36,7 +36,7 @@ func serveMCP(ctx context.Context, path string, in io.ReadCloser, out io.Writer)
 	}
 	db, err := store.OpenReadOnly(path)
 	if err != nil {
-		return core.Fail("mcp_storage", "MCP requires an existing private schema v3 database; verify --db, permissions and compatibility. Initialize or migrate separately through the CLI; MCP never creates or migrates state")
+		return core.Fail("mcp_storage", "MCP requires an existing private schema v4 database; verify --db, permissions and compatibility. Initialize or migrate separately through the CLI; MCP never creates or migrates state")
 	}
 	defer db.Close()
 	writer, ok := out.(io.WriteCloser)

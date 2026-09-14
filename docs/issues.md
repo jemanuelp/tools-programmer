@@ -26,6 +26,18 @@ tools-programmer issue summary --project demo --number 1
 
 Omit `--remote-id` if it has not been observed; no remote lookup is performed. Later, `issue observe --issue-id ISSUE_ID --remote-id OBSERVED_ID` appends that observation without replacing the issue record. Repeating the same observation is idempotent; a different stable ID is rejected. A PR has exactly one local issue owner within its registered project/repository. Multiple PRs may serve that issue. Cross-project foreign keys and unique ownership prevent accidental reassignment. Ownership and recorded issue identities are immutable; correcting a mistaken identity is not an implicit merge/rewrite operation.
 
+### Register an existing GitHub issue locally
+
+The CLI accepts an optional canonical issue URL:
+
+```sh
+tools-programmer issue add --project demo --number 12 --url https://github.com/example/demo/issues/12
+```
+
+- URL must exactly equal `https://REGISTERED_HOST/owner/repo/issues/NUMBER`, using the registered lowercase repository and canonical decimal number. Enterprise hosts are supported. Credentials, ports, query strings (even empty), fragments, percent encodings, case variants, leading/trailing whitespace and trailing slashes are rejected, not normalized.
+- Legacy CLI registration may omit `--url`; existing and new missing URLs consistently read as `"url":""`. No URL is inferred. `issue_summary` returns the stored `id`, `project`, `repository`, `number` and `url` under `data.issue`.
+- Duplicate identity returns `issue_conflict`, including identical retries. Registration does not enrich missing URLs, overwrite history or verify remote existence.
+
 ### Estimation and outcomes
 
 | Record | Meaning |
@@ -111,7 +123,7 @@ For a reused child, a new retained parent dispatch permits another metadata look
 
 The observer now persists the authoritative task-before observation **before returning from the hook**. It uses the existing immutable activity table: two `delegation` boundaries with identical timestamps describe an instantaneous dispatch marker, not a parent work interval or another agent. A deterministic SHA-256 marker identifies the exact runtime/session/call tuple; its stored parent segment and timestamp select the original assignment. No schema change, raw task arguments or new telemetry service is required.
 
-`activity dispatch-show --runtime ID --session PARENT_ID --call CALL_ID` is a narrow **local read-only** lookup. It validates bounded identifiers, uses parameterized SQL, checks persisted boundary consistency, and requires an existing v3 DB without creating or migrating it. The observer's subprocess lookup allows 3 seconds and 4 KiB output, passes no provider credentials, and is not exposed as an MCP mutation. A missing record returns null; conflicting records fail closed. A start marker durably written before interruption is sufficient provenance even if its zero-duration stop was not written; that incomplete marker remains an explicit unknown in history. Timestamp-tied assignment changes are rejected rather than invalidating an already recorded dispatch.
+`activity dispatch-show --runtime ID --session PARENT_ID --call CALL_ID` is a narrow **local read-only** lookup. It validates bounded identifiers, uses parameterized SQL, checks persisted boundary consistency, and requires an existing v4 DB without creating or migrating it. The observer's subprocess lookup allows 3 seconds and 4 KiB output, passes no provider credentials, and is not exposed as an MCP mutation. A missing record returns null; conflicting records fail closed. A start marker durably written before interruption is sufficient provenance even if its zero-duration stop was not written; that incomplete marker remains an explicit unknown in history. Timestamp-tied assignment changes are rejected rather than invalidating an already recorded dispatch.
 
 After observer memory loss, runtime metadata must identify exactly one matching parent call for the child. The observer can then reload that call's persisted segment/timestamp and open a **new** correctly assigned child segment with a recovery gap. Parent issue B remains independent while the recovered child uses its original dispatch issue A. Previously unassigned/incomplete child records are never rewritten. Loss before any durable marker, conflicting data, or multiple equally plausible calls remains unknown; neither the parent's current issue nor the latest timestamp substitutes for exact evidence. Rebuild the binary together with the observer artifacts; older binaries lacking this lookup safely leave recovery unknown. No installation or upgrade is automatic.
 
@@ -161,6 +173,6 @@ go test ./...
 go vet ./...
 ```
 
-Fixtures use temporary SQLite and fake GitHub/processes. Existing approval tests remain required. Additive v3 migration preserves registrations, bindings, review history and unresolved remote operations; read-only MCP never initializes or migrates. There is no destructive reset command. An authorized disposable fresh database can be initialized at an explicitly selected new private path, without deleting the existing one. Never discard unresolved real remote outcomes to bypass a guard.
+Fixtures use temporary SQLite and fake GitHub/processes. Existing approval tests remain required. Additive migrations preserve registrations, bindings, review history and unresolved remote operations; MCP never initializes or migrates. There is no destructive reset command. An authorized disposable fresh database can be initialized at an explicitly selected new private path, without deleting the existing one. Never discard unresolved real remote outcomes to bypass a guard.
 
-Code rollback boundaries: domain/store migration and tests; issue CLI/shared summary/MCP and tests; optional observer and its isolated tests/docs. Removing the observer does not remove local issue functionality. **A migrated DB is not backward compatible with the older binary**: retain a v3-capable binary; do not roll back `user_version`, remove tables, or restore stale approval state. No commits or deployment are required to inspect these work units.
+Code rollback boundaries: domain/store migration and tests; issue CLI/shared summary/MCP and tests; optional observer and its isolated tests/docs. Removing the observer does not remove local issue functionality. **A migrated DB is not backward compatible with the older binary**: retain a v4-capable binary; do not roll back `user_version`, remove tables, or restore stale approval state. No commits or deployment are required to inspect these work units.

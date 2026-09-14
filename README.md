@@ -31,7 +31,7 @@ Repository references accept `owner/repo` or `host/owner/repo`, normalize to low
 
 Supply the user-approved GitHub login and Git commit name/email explicitly at registration. Nothing is inferred from the active account, Git configuration, or review declarations. The GitHub login is compared case-insensitively; Git author and committer names/emails must match exactly. Bindings are immutable; identity rotation is not supported. The tool never switches accounts or changes Git configuration.
 
-The check opens an existing v3 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
+The check opens an existing v4 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
 
 ```sh
 tools-programmer project check --project demo
@@ -124,7 +124,7 @@ Path priority:
 
 Example isolated state: `tools-programmer --db /private/directory/history.db project list`. Relative file paths are accepted, SQLite URI/DSN input is not interpreted. Use an application-owned **0700** directory; the database is created **0600**. Existing public files/directories and immediate symlink targets are refused, not silently chmodded. Use trusted local filesystems and ancestors; this is not a defense against a compromised local account or hand-edited database.
 
-Schema version 3 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v3 state and open read-only**. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
+Schema version 4 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v4 state and open read-only**. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
 
 **Backup:** stop all processes accessing the database, then copy the closed database file into a private directory with mode 0600. Do not copy a live file without SQLite's backup API, or remove a hot journal/WAL. Restoring an old backup loses newer intent history; do not apply its old plans as if it were current. Inspect live remote state and resolve discrepancies first. Never delete state to bypass an unknown action.
 

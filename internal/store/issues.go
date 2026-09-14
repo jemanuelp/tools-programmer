@@ -73,6 +73,10 @@ func (s *Store) issueWrite(fn func(*sql.Conn) error) error {
 }
 
 func (s *Store) AddIssue(project string, number int, remote string) (core.Issue, error) {
+	return s.AddIssueWithURL(project, number, remote, "")
+}
+
+func (s *Store) AddIssueWithURL(project string, number int, remote, url string) (core.Issue, error) {
 	i := core.Issue{Project: project, Number: number, RemoteID: remote, CreatedAt: core.Now()}
 	if remote != "" {
 		i.RemoteObservedAt = i.CreatedAt
@@ -85,7 +89,11 @@ func (s *Store) AddIssue(project string, number int, remote string) (core.Issue,
 		return i, err
 	}
 	i.Repository = p.Repo
-	r, err := s.DB.Exec("INSERT INTO issues(project,repository,number,remote_id,created_at) VALUES(?,?,?,?,?)", project, p.Repo, number, remote, i.CreatedAt)
+	if err := core.ValidateIssueURL(p.Repo, number, url); err != nil {
+		return i, err
+	}
+	i.URL = url
+	r, err := s.DB.ExecContext(s.context(), "INSERT INTO issues(project,repository,number,remote_id,created_at,url) VALUES(?,?,?,?,?,?)", project, p.Repo, number, remote, i.CreatedAt, url)
 	if err != nil {
 		return i, core.Fail("issue_conflict", "issue identity already exists or conflicts")
 	}
@@ -216,7 +224,7 @@ type issueReader interface {
 func readIssueHistory(ctx context.Context, db issueReader, project string, number int) (core.IssueHistory, error) {
 	h := core.IssueHistory{PRs: []int{}, Estimates: []core.Estimate{}, Confirmations: []core.EstimateConfirmation{}, Outcomes: []core.IssueOutcome{}, State: "open"}
 	i := &h.Issue
-	err := db.QueryRowContext(ctx, "SELECT id,project,repository,number,COALESCE((SELECT remote_id FROM issue_remote_observations WHERE issue_id=i.id),i.remote_id),COALESCE((SELECT observed_at FROM issue_remote_observations WHERE issue_id=i.id),CASE WHEN i.remote_id<>'' THEN i.created_at ELSE '' END),created_at FROM issues i WHERE project=? AND number=?", project, number).Scan(&i.ID, &i.Project, &i.Repository, &i.Number, &i.RemoteID, &i.RemoteObservedAt, &i.CreatedAt)
+	err := db.QueryRowContext(ctx, "SELECT id,project,repository,number,COALESCE((SELECT remote_id FROM issue_remote_observations WHERE issue_id=i.id),i.remote_id),COALESCE((SELECT observed_at FROM issue_remote_observations WHERE issue_id=i.id),CASE WHEN i.remote_id<>'' THEN i.created_at ELSE '' END),created_at,url FROM issues i WHERE project=? AND number=?", project, number).Scan(&i.ID, &i.Project, &i.Repository, &i.Number, &i.RemoteID, &i.RemoteObservedAt, &i.CreatedAt, &i.URL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return h, core.Fail("not_found", "issue not registered")
 	}

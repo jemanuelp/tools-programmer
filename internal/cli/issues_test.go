@@ -28,9 +28,13 @@ func TestIssueCLIAndMCPSummaryShareSnapshotSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	i, err := db.AddIssue("demo", 1, "")
+	registered, err := runIssue(context.Background(), path, "issue add", []string{"--project", "demo", "--number", "1", "--url", "https://github.com/example/demo/issues/1"}, strings.NewReader(""))
 	if err != nil {
 		t.Fatal(err)
+	}
+	i := registered.(core.Issue)
+	if i.URL != "https://github.com/example/demo/issues/1" {
+		t.Fatal(i)
 	}
 	p, err := db.ProposeEstimate(i.ID, "initial", 3, "agent", "bounded effort")
 	if err != nil {

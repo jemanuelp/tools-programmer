@@ -14,7 +14,7 @@ import (
 )
 
 const issueHelp = `Local issue history (no GitHub writes):
-  issue add --project NAME --number N [--remote-id ID]
+  issue add --project NAME --number N [--remote-id ID] [--url URL]
   issue link --issue-id ID --pr N
   issue observe --issue-id ID --remote-id OBSERVED_ID
   issue propose --issue-id ID --kind initial|revision|final --score 1|2|3|5|8|13|21 --proposer AGENT --rationale TEXT
@@ -33,7 +33,7 @@ The observer obtains session IDs from runtime context. See docs/issues.md.
 func runIssue(ctx context.Context, path, command string, args []string, in io.Reader) (any, error) {
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	f.SetOutput(io.Discard)
-	var project, remote, kind, proposer, rationale, human, outcome, actor string
+	var project, remote, url, kind, proposer, rationale, human, outcome, actor string
 	var number, pr, score int
 	var issueID, proposalID int64
 	var confirmed bool
@@ -44,6 +44,7 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 		f.IntVar(&number, "number", 0, "issue number")
 		if command == "issue add" {
 			f.StringVar(&remote, "remote-id", "", "observed remote stable ID")
+			f.StringVar(&url, "url", "", "canonical HTTPS GitHub issue URL")
 		}
 	case "issue link":
 		f.Int64Var(&issueID, "issue-id", 0, "local issue ID")
@@ -132,7 +133,7 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 	dbView := db.WithReadContext(ctx)
 	switch command {
 	case "issue add":
-		return dbView.AddIssue(project, number, remote)
+		return dbView.AddIssueWithURL(project, number, remote, url)
 	case "issue link":
 		err = dbView.LinkIssuePR(issueID, pr)
 	case "issue observe":
