@@ -276,7 +276,7 @@ func TestBinaryMCPInstalledCommandAndLifecycle(t *testing.T) {
 		t.Fatal("no initialization")
 	}
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 8 {
+	if err != nil || len(list.Tools) != 9 {
 		t.Fatalf("%+v %v", list, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_list"})
@@ -302,6 +302,31 @@ func TestBinaryMCPInstalledCommandAndLifecycle(t *testing.T) {
 	after, _ := os.ReadFile(path)
 	if !bytes.Equal(before, after) {
 		t.Fatal("binary modified history")
+	}
+
+	// The same entry point permits only explicit local registration, without gh on PATH.
+	writeCmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	writeCmd.Dir, writeCmd.Env = other, env
+	writer, err := client.Connect(ctx, &mcp.CommandTransport{Command: writeCmd, TerminateDuration: 2 * time.Second}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	issueURL := "https://github.com/example/binary/issues/12"
+	result, err = writer.CallTool(ctx, &mcp.CallToolParams{Name: "issue_register", Arguments: map[string]any{"project": p.Name, "number": 12, "url": issueURL}})
+	if err != nil || result.IsError {
+		t.Fatalf("%+v %v", result, err)
+	}
+	result, err = writer.CallTool(ctx, &mcp.CallToolParams{Name: "issue_summary", Arguments: map[string]any{"project": p.Name, "number": 12}})
+	if err != nil || result.IsError {
+		t.Fatalf("%+v %v", result, err)
+	}
+	encoded, _ = json.Marshal(result.StructuredContent)
+	if !strings.Contains(string(encoded), issueURL) {
+		t.Fatalf("missing stored URL: %s", encoded)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
 	}
 
 	// Startup failure uses stderr only and must not create a missing database.

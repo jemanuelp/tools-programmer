@@ -243,7 +243,7 @@ func TestActivityDiscoveryUnassignedAndReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 8 {
+	if len(tools.Tools) != 9 {
 		t.Fatal(len(tools.Tools))
 	}
 	for _, tool := range tools.Tools {
