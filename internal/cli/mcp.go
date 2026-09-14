@@ -29,7 +29,7 @@ func selectedDatabase(path string) (string, error) {
 	return filepath.Abs(path)
 }
 
-func serveMCP(ctx context.Context, path string, in io.ReadCloser, out io.Writer) error {
+func serveMCP(ctx context.Context, path string, in io.ReadCloser, out io.Writer, options mcpserver.Options) error {
 	path, err := selectedDatabase(path)
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func serveMCP(ctx context.Context, path string, in io.ReadCloser, out io.Writer)
 	if !ok {
 		writer = protocolWriter{out}
 	}
-	if err := mcpserver.New(db).Run(ctx, &mcp.IOTransport{Reader: in, Writer: writer}); err != nil && ctx.Err() == nil {
+	if err := mcpserver.New(db, options).Run(ctx, &mcp.IOTransport{Reader: in, Writer: writer}); err != nil && ctx.Err() == nil {
 		return core.Fail("mcp_transport", "MCP transport ended with an error")
 	}
 	return nil

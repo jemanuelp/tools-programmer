@@ -40,6 +40,8 @@ func TestMCPValidationBeforeSideEffects(t *testing.T) {
 		{[]string{"mcp", "install", "--help"}, true},
 		{[]string{"mcp", "serve", "--unknown"}, false},
 		{[]string{"mcp", "serve", "extra"}, false},
+		{[]string{"mcp", "serve", "--enable-project-registration", "extra"}, false},
+		{[]string{"mcp", "serve", "--enable-project-registration=invalid"}, false},
 		{[]string{"mcp", "install"}, false},
 		{[]string{"mcp", "install", "future-agent"}, false},
 		{[]string{"mcp", "install", "opencode", "extra"}, false},
@@ -135,7 +137,7 @@ func TestMCPNeverInitializesOrMigrates(t *testing.T) {
 				t.Fatal(readErr)
 			}
 			var stdout, stderr bytes.Buffer
-			code := RunWithIO(context.Background(), []string{"--db", path, "mcp", "serve"}, io.NopCloser(strings.NewReader("")), &stdout, &stderr, nil)
+			code := RunWithIO(context.Background(), []string{"--db", path, "mcp", "serve", "--enable-project-registration"}, io.NopCloser(strings.NewReader("")), &stdout, &stderr, nil)
 			if kind == "current-eof" {
 				if code != 0 || stderr.Len() != 0 {
 					t.Fatalf("EOF failure: %d %s", code, &stderr)
@@ -279,6 +281,11 @@ func TestBinaryMCPInstalledCommandAndLifecycle(t *testing.T) {
 	if err != nil || len(list.Tools) != 9 {
 		t.Fatalf("%+v %v", list, err)
 	}
+	registration := map[string]any{"name": "opt-in", "repo": "Example/Opt-In", "github_login": "Explicit", "git_name": "Explicit", "git_email": "explicit@example.com"}
+	rejected, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_register", Arguments: registration})
+	if err == nil && !rejected.IsError {
+		t.Fatal("default binary accepted project registration")
+	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_list"})
 	if err != nil || result.IsError {
 		t.Fatalf("%+v %v", result, err)
@@ -327,6 +334,45 @@ func TestBinaryMCPInstalledCommandAndLifecycle(t *testing.T) {
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
+	}
+
+	// The opt-in binary declares projects with no Git/gh executables or credentials.
+	optArgs := append(append([]string{}, command[1:]...), "--enable-project-registration")
+	optCmd := exec.CommandContext(ctx, command[0], optArgs...)
+	optCmd.Dir, optCmd.Env = other, env
+	optSession, err := client.Connect(ctx, &mcp.CommandTransport{Command: optCmd, TerminateDuration: 2 * time.Second}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer optSession.Close()
+	result, err = optSession.CallTool(ctx, &mcp.CallToolParams{Name: "project_register", Arguments: registration})
+	if err != nil || result.IsError {
+		t.Fatalf("%+v %v", result, err)
+	}
+	registered, _ := json.Marshal(result.StructuredContent)
+	var declared struct {
+		Data core.Project `json:"data"`
+	}
+	if err := json.Unmarshal(registered, &declared); err != nil {
+		t.Fatal(err)
+	}
+	result, err = optSession.CallTool(ctx, &mcp.CallToolParams{Name: "project_list"})
+	if err != nil || result.IsError {
+		t.Fatalf("%+v %v", result, err)
+	}
+	listed, _ := json.Marshal(result.StructuredContent)
+	if !strings.Contains(string(listed), "github.com/example/opt-in") {
+		t.Fatalf("MCP readback missing declaration: %s", listed)
+	}
+	optSession.Close()
+	cliList := exec.CommandContext(ctx, binary, "--db", path, "project", "list")
+	cliList.Dir, cliList.Env = other, env
+	listed, err = cliList.Output()
+	var cliProjects struct {
+		Data []core.Project `json:"data"`
+	}
+	if err != nil || json.Unmarshal(listed, &cliProjects) != nil || len(cliProjects.Data) != 2 || cliProjects.Data[1] != declared.Data {
+		t.Fatalf("CLI readback mismatch: %s %v", listed, err)
 	}
 
 	// Startup failure uses stderr only and must not create a missing database.

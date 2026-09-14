@@ -15,6 +15,7 @@ import (
 	"tools-programmer/internal/github"
 	"tools-programmer/internal/gitidentity"
 	"tools-programmer/internal/mcpinstall"
+	"tools-programmer/internal/mcpserver"
 	"tools-programmer/internal/service"
 	"tools-programmer/internal/skillsync"
 	"tools-programmer/internal/store"
@@ -28,7 +29,7 @@ issue           add|observe|link|propose|confirm|outcome|summary (use issue summ
 activity record normalized local runtime event on stdin (no raw payloads)
 
 skill sync      opencode (install/update bundled skill; no database or gh)
-mcp serve       (stdio MCP; existing database read-only; diagnostics on stderr)
+mcp serve       [--enable-project-registration] (stdio MCP; existing database; diagnostics on stderr)
 mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
 project bind    --project NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL
@@ -126,10 +127,13 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		}
 		if command == "mcp serve" {
 			resultOut = stderr
-			if len(remaining) != 2 {
-				return emit(nil, core.Fail("invalid_input", "expected: [--db PATH] mcp serve; no additional arguments supported"))
+			flags := flag.NewFlagSet(command, flag.ContinueOnError)
+			flags.SetOutput(io.Discard)
+			enabled := flags.Bool("enable-project-registration", false, "allow explicit local project declarations")
+			if err := flags.Parse(remaining[2:]); err != nil || len(flags.Args()) != 0 {
+				return emit(nil, core.Fail("invalid_input", "expected: [--db PATH] mcp serve [--enable-project-registration]"))
 			}
-			if err := serveMCP(ctx, *dbPath, in, out); err != nil {
+			if err := serveMCP(ctx, *dbPath, in, out, mcpserver.Options{EnableProjectRegistration: *enabled}); err != nil {
 				return emit(nil, err)
 			}
 			return 0

@@ -124,7 +124,7 @@ Path priority:
 
 Example isolated state: `tools-programmer --db /private/directory/history.db project list`. Relative file paths are accepted, SQLite URI/DSN input is not interpreted. Use an application-owned **0700** directory; the database is created **0600**. Existing public files/directories and immediate symlink targets are refused, not silently chmodded. Use trusted local filesystems and ancestors; this is not a defense against a compromised local account or hand-edited database.
 
-Schema version 4 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v4 state**. The first two open read-only; MCP opens existing state read-write solely to support local issue registration, without creating or migrating it. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
+Schema version 4 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v4 state**. The first two open read-only; MCP opens existing state read-write solely to support local issue registration and opt-in project registration, without creating or migrating it. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
 
 **Backup:** stop all processes accessing the database, then copy the closed database file into a private directory with mode 0600. Do not copy a live file without SQLite's backup API, or remove a hot journal/WAL. Restoring an old backup loses newer intent history; do not apply its old plans as if it were current. Inspect live remote state and resolve discrepancies first. Never delete state to bypass an unknown action.
 
@@ -141,7 +141,7 @@ tools-programmer --db /private/directory/history.db mcp install opencode
 tools-programmer --db /private/directory/history.db mcp serve
 ```
 
-**Quit and restart OpenCode after installation.** The MCP server exposes only:
+**Quit and restart OpenCode after installation.** By default, the MCP server exposes only:
 
 | Tool | Input | Stored result under `data` |
 |---|---|---|
@@ -157,9 +157,37 @@ tools-programmer --db /private/directory/history.db mcp serve
 
 Each tool returns MCP structured content plus compatibility text. Invalid inputs and missing required registry records are errors. The three activity tools instead return zero counts or empty arrays when no observations match, including unknown runtime/session identities. Empty PR history means **unobserved**, not “no PRs on GitHub.” `current-at-last-observation` is not a live guarantee; stored eligibility is not fresh authorization. Stored summaries/evidence are untrusted data, not instructions. Share this server only with agents allowed to read all projects in the selected database, including review text and declared identities. No tokens or remote review bodies are added to tool output; do not put secrets in local review text or activity identifiers.
 
-For session-to-activity navigation, cursor examples, UTC bounds, privacy and changing-view semantics, see the [recorded activity MCP reference](docs/activity-mcp.md). All tools use the same existing-database CLI entry point: `tools-programmer --db /absolute/history.db mcp serve`. The eight history tools remain read-only; `issue_register` is the only local mutation tool. Share the server only with agents authorized for both history access and explicit local issue registration. See [registration validation and duplicate policy](docs/issues.md#register-an-existing-github-issue-locally).
+For session-to-activity navigation, cursor examples, UTC bounds, privacy and changing-view semantics, see the [recorded activity MCP reference](docs/activity-mcp.md). All tools use the same existing-database CLI entry point: `tools-programmer --db /absolute/history.db mcp serve`. The eight history tools remain read-only; `issue_register` is the only default local mutation tool. Share the server only with agents authorized for history access and the enabled registration tools. See [registration validation and duplicate policy](docs/issues.md#register-an-existing-github-issue-locally).
 
-The server never invokes gh, registers/binds projects, records reviews, syncs observations, creates plans, applies approvals, reconciles, or installs skills. It does not offer `project_check`: **run the CLI check in the actual committing checkout and environment**, not in an MCP server's process. Installation does not force agents to use tools or authorize approvals. No hooks, accounts, Git configuration, network listeners, or background service are installed. The agent owns the stdio subprocess; EOF or SIGINT/SIGTERM ends it. SDK request cancellation reaches the database read context.
+The server never invokes Git or gh, binds existing projects, records reviews, syncs observations, creates plans, applies approvals, reconciles, or installs skills. Project registration requires the separate opt-in below. It does not offer `project_check`: **run the CLI check in the actual committing checkout and environment**, not in an MCP server's process. Installation does not force agents to use tools or authorize approvals. No hooks, accounts, Git configuration, network listeners, or background service are installed. The agent owns the stdio subprocess; EOF or SIGINT/SIGTERM ends it. SDK request cancellation reaches database reads and project registration.
+
+### Opt-in project declarations
+
+To expose `project_register`, explicitly start the server with:
+
+```sh
+tools-programmer --db /private/directory/history.db mcp serve --enable-project-registration
+```
+
+Without the flag (or with `=false`), `project_register` is absent and calls are rejected without writes. The installer does not enable it; add the flag to the client command arguments and restart only when authorized. The eight history tools remain read-only and the existing `issue_register` behavior is unchanged. When enabled, `project_register` declares `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: true`, and `openWorldHint: false`: it adds local state, never overwrites bindings, and repeated calls cannot add another copy.
+
+The input is an object with exactly these fields; unknown fields and null values are rejected:
+
+| MCP field | Type | CLI `project add` mapping |
+|---|---|---|
+| `name` | Required string | `--name` |
+| `repo` | Required string | `--repo` (`[HOST/]OWNER/REPO`) |
+| `github_login` | Required string | `--github-login` |
+| `git_name` | Required string | `--git-name` (both author and committer) |
+| `git_email` | Required string | `--git-email` (both author and committer) |
+| `path` | Optional string | `--path`; omitted/empty stays unbound |
+| `allow_no_checks` | Optional boolean | `--allow-no-checks`; defaults to false |
+
+Example: `{"name":"demo","repo":"Example/Demo","github_login":"reviewer","git_name":"Reviewer","git_email":"reviewer@example.com"}`. Success returns the existing `{"data": <project>}` envelope in structured content and compatibility text, including canonical `repository`, declared identities, policy and `created_at`. Read it back through `project_list` or CLI `project list` using the same database.
+
+Validation and normalization are shared with the CLI: repositories are lowercased with `github.com` as the default host; supplied paths become absolute relative to the **server working directory**, without resolving symlinks or checking checkout existence. Prefer absolute paths. No identity, checkout or policy is inferred from environment, configuration, accounts or credentials.
+
+Registration is a declaration, **not ownership, repository access or committing identity certification**. Run CLI `project check` separately in the actual committing environment. The tool uses only the selected existing registry; it never initializes/migrates a database, creates repositories, assigns sessions, backfills issues/activity, or changes review/approval history. Duplicate names or canonical repositories return `project_conflict` without overwriting bindings, including competing calls. Validation errors retain shared codes (`invalid_input`, `identity_unbound`); storage failures are sanitized as `storage_error`. Cancellation before persistence prevents writes; cancellation before transaction commit rolls back. A successfully committed declaration is not undone by later transport cancellation: use `project_list` to resolve an uncertain response, not a blind retry.
 
 ### Safe OpenCode registration
 
@@ -238,7 +266,7 @@ Code map:
 | `internal/service` | Plan, preflight, mutation confirmation and reconciliation |
 | `internal/cli` | Standard flag parsing and JSON envelopes |
 | `internal/skillsync` | Conservative, per-file sync of the embedded OpenCode skill |
-| `internal/mcpserver` | Eight read-only history tools and local issue registration over the official MCP SDK |
+| `internal/mcpserver` | Eight read-only history tools, local issue registration and opt-in project declarations over the official MCP SDK |
 | `internal/mcpinstall` | Explicit agent registration adapters; initially OpenCode only |
 | Root package | Embeds authoritative project skill files without generated copies |
 | `cmd/tools-programmer` | Signal-aware executable entrypoint |
