@@ -2,7 +2,7 @@
 
 Issue #1 is closed for its delivered scope. Reusable regression infrastructure belongs to [the laboratory](lab.md) (#2); genuine human-wait (#3), cancellation/restart (#4) and actual OpenChamber (#5) acceptance remain separate and pending. Lab construction does not certify those behaviors.
 
-Issue estimates and runtime observations live in the existing private SQLite database. Nothing is published to GitHub. The CLI and read-only MCP use the same `Service.IssueSummary` and a consistent SQLite read snapshot. **The observer is experimental: fixture tests do not establish accuracy on a live OpenCode/OpenChamber host.**
+Issue estimates and runtime observations live in the existing private SQLite database. Nothing is published to GitHub. CLI and MCP summaries use the same `Service.IssueSummary` and a consistent SQLite read snapshot. **The observer is experimental: fixture tests do not establish accuracy on a live OpenCode/OpenChamber host.**
 
 To discover recorded work without a registered issue, use the [read-only activity MCP tools](activity-mcp.md): `activity_summary {}`, then `session_list {"limit":20}`, then `activity_list` with a returned runtime/session pair. Gap inspection uses `kind=gap` and optional `reason`. These tools report filtered recorded counts, not elapsed active time, and pages are a changing view rather than a cross-page snapshot.
 
@@ -26,6 +26,26 @@ tools-programmer issue summary --project demo --number 1
 
 Omit `--remote-id` if it has not been observed; no remote lookup is performed. Later, `issue observe --issue-id ISSUE_ID --remote-id OBSERVED_ID` appends that observation without replacing the issue record. Repeating the same observation is idempotent; a different stable ID is rejected. A PR has exactly one local issue owner within its registered project/repository. Multiple PRs may serve that issue. Cross-project foreign keys and unique ownership prevent accidental reassignment. Ownership and recorded issue identities are immutable; correcting a mistaken identity is not an implicit merge/rewrite operation.
 
+### Register an existing GitHub issue locally
+
+After explicit user authorization, call MCP `issue_register` with:
+
+```json
+{"project":"demo","number":12,"url":"https://github.com/example/demo/issues/12"}
+```
+
+`project`, positive `number` and nonempty `url` are required; `remote_id` is optional and must be an already observed stable GitHub ID. The CLI uses the same registration validation and insert path:
+
+```sh
+tools-programmer issue add --project demo --number 12 --url https://github.com/example/demo/issues/12
+```
+
+- URL must exactly equal `https://REGISTERED_HOST/owner/repo/issues/NUMBER`, using the registered lowercase repository and canonical decimal number. Enterprise hosts are supported. Credentials, ports, query strings (even empty), fragments, percent encodings, case variants, leading/trailing whitespace and trailing slashes are rejected, not normalized.
+- Legacy CLI registration may omit `--url`; existing and new missing URLs consistently read as `"url":""`. No URL is inferred. `issue_summary` returns the stored `id`, `project`, `repository`, `number` and `url` under `data.issue`.
+- Duplicate `(project, number)` or conflicting stable remote identity returns `issue_conflict`, including identical retries. Neither CLI nor MCP inserts a duplicate, enriches a missing URL, or overwrites history. Unknown projects, invalid URLs and identity mismatches insert nothing.
+- Registration asserts an existing issue's identity locally; it does **not verify remote existence**. It never calls GitHub, creates a remote issue, assigns a session, confirms estimates, or changes local/remote approval state. Registration is not work authorization.
+- MCP requires an already migrated private schema v4 database and never initializes or migrates it. The additive migration preserves issue IDs and activity references.
+
 ### Estimation and outcomes
 
 | Record | Meaning |
@@ -47,7 +67,7 @@ tools-programmer issue outcome --issue-id ISSUE_ID --outcome reopened \
   --actor human-name --rationale 'New acceptance work identified'
 ```
 
-Confirmation is a local declaration, **not authentication of human presence**. An agent must obtain actual explicit approval, never call its own proposal “human-confirmed,” and never infer consent from a successful test. There is no confirmation/assignment mutation tool in the read-only MCP.
+Confirmation is a local declaration, **not authentication of human presence**. An agent must obtain actual explicit approval, never call its own proposal “human-confirmed,” and never infer consent from a successful test. There is no confirmation/assignment mutation tool in MCP; its only mutation is local issue registration.
 
 ## Recorder and accounting contract
 
@@ -111,7 +131,7 @@ For a reused child, a new retained parent dispatch permits another metadata look
 
 The observer now persists the authoritative task-before observation **before returning from the hook**. It uses the existing immutable activity table: two `delegation` boundaries with identical timestamps describe an instantaneous dispatch marker, not a parent work interval or another agent. A deterministic SHA-256 marker identifies the exact runtime/session/call tuple; its stored parent segment and timestamp select the original assignment. No schema change, raw task arguments or new telemetry service is required.
 
-`activity dispatch-show --runtime ID --session PARENT_ID --call CALL_ID` is a narrow **local read-only** lookup. It validates bounded identifiers, uses parameterized SQL, checks persisted boundary consistency, and requires an existing v3 DB without creating or migrating it. The observer's subprocess lookup allows 3 seconds and 4 KiB output, passes no provider credentials, and is not exposed as an MCP mutation. A missing record returns null; conflicting records fail closed. A start marker durably written before interruption is sufficient provenance even if its zero-duration stop was not written; that incomplete marker remains an explicit unknown in history. Timestamp-tied assignment changes are rejected rather than invalidating an already recorded dispatch.
+`activity dispatch-show --runtime ID --session PARENT_ID --call CALL_ID` is a narrow **local read-only** lookup. It validates bounded identifiers, uses parameterized SQL, checks persisted boundary consistency, and requires an existing v4 DB without creating or migrating it. The observer's subprocess lookup allows 3 seconds and 4 KiB output, passes no provider credentials, and is not exposed as an MCP mutation. A missing record returns null; conflicting records fail closed. A start marker durably written before interruption is sufficient provenance even if its zero-duration stop was not written; that incomplete marker remains an explicit unknown in history. Timestamp-tied assignment changes are rejected rather than invalidating an already recorded dispatch.
 
 After observer memory loss, runtime metadata must identify exactly one matching parent call for the child. The observer can then reload that call's persisted segment/timestamp and open a **new** correctly assigned child segment with a recovery gap. Parent issue B remains independent while the recovered child uses its original dispatch issue A. Previously unassigned/incomplete child records are never rewritten. Loss before any durable marker, conflicting data, or multiple equally plausible calls remains unknown; neither the parent's current issue nor the latest timestamp substitutes for exact evidence. Rebuild the binary together with the observer artifacts; older binaries lacking this lookup safely leave recovery unknown. No installation or upgrade is automatic.
 
@@ -161,6 +181,6 @@ go test ./...
 go vet ./...
 ```
 
-Fixtures use temporary SQLite and fake GitHub/processes. Existing approval tests remain required. Additive v3 migration preserves registrations, bindings, review history and unresolved remote operations; read-only MCP never initializes or migrates. There is no destructive reset command. An authorized disposable fresh database can be initialized at an explicitly selected new private path, without deleting the existing one. Never discard unresolved real remote outcomes to bypass a guard.
+Fixtures use temporary SQLite and fake GitHub/processes. Existing approval tests remain required. Additive migrations preserve registrations, bindings, review history and unresolved remote operations; MCP never initializes or migrates. There is no destructive reset command. An authorized disposable fresh database can be initialized at an explicitly selected new private path, without deleting the existing one. Never discard unresolved real remote outcomes to bypass a guard.
 
-Code rollback boundaries: domain/store migration and tests; issue CLI/shared summary/MCP and tests; optional observer and its isolated tests/docs. Removing the observer does not remove local issue functionality. **A migrated DB is not backward compatible with the older binary**: retain a v3-capable binary; do not roll back `user_version`, remove tables, or restore stale approval state. No commits or deployment are required to inspect these work units.
+Code rollback boundaries: domain/store migration and tests; issue CLI/shared summary/MCP and tests; optional observer and its isolated tests/docs. Removing the observer does not remove local issue functionality. **A migrated DB is not backward compatible with the older binary**: retain a v4-capable binary; do not roll back `user_version`, remove tables, or restore stale approval state. No commits or deployment are required to inspect these work units.
