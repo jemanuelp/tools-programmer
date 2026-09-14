@@ -61,6 +61,11 @@ type ActivityReport struct {
 
 var runtimeID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,199}$`)
 
+// ValidActivityIdentifier shares the ingestion boundary; syntax is not secret detection.
+func ValidActivityIdentifier(value string) bool {
+	return runtimeID.MatchString(value)
+}
+
 func (e ActivityEvent) Validate() error {
 	bad := func() error { return Fail("invalid_event", "invalid normalized activity event") }
 	for _, v := range []string{e.ID, e.Runtime, e.Session, e.Segment} {

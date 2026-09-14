@@ -4,6 +4,8 @@ Issue #1 is closed for its delivered scope. Reusable regression infrastructure b
 
 Issue estimates and runtime observations live in the existing private SQLite database. Nothing is published to GitHub. The CLI and read-only MCP use the same `Service.IssueSummary` and a consistent SQLite read snapshot. **The observer is experimental: fixture tests do not establish accuracy on a live OpenCode/OpenChamber host.**
 
+To discover recorded work without a registered issue, use the [read-only activity MCP tools](activity-mcp.md): `activity_summary {}`, then `session_list {"limit":20}`, then `activity_list` with a returned runtime/session pair. Gap inspection uses `kind=gap` and optional `reason`. These tools report filtered recorded counts, not elapsed active time, and pages are a changing view rather than a cross-page snapshot.
+
 ## Quick path
 
 Use an already registered project. All IDs below are local IDs returned by the preceding command, not guessed values.

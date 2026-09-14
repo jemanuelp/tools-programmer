@@ -79,6 +79,7 @@ func New(db *store.Store) *mcp.Server {
 		}
 		return (&service.Service{Store: db.WithReadContext(ctx)}).Show(in.ID)
 	})
+	addActivityTools(s, db)
 	return s
 }
 
