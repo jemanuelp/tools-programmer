@@ -99,6 +99,9 @@ func TestReadOnlyProtocolAndStoredSemantics(t *testing.T) {
 	if session.InitializeResult().ProtocolVersion == "" {
 		t.Fatal("no negotiated protocol version")
 	}
+	if got := session.InitializeResult().ServerInfo.Version; got != core.BuildVersion().Version {
+		t.Fatalf("MCP version %q differs from CLI build identity", got)
+	}
 	list, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

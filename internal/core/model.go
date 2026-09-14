@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-const Version = "0.1.0"
-
 type Error struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`

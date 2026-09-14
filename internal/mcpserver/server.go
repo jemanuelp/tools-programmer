@@ -47,7 +47,7 @@ func New(db *store.Store, options ...Options) *mcp.Server {
 	if enabled {
 		instructions += " project_register is enabled for explicit local identity declarations only, not ownership, access or committing identity certification."
 	}
-	s := mcp.NewServer(&mcp.Implementation{Name: "tools-programmer", Version: core.Version}, &mcp.ServerOptions{
+	s := mcp.NewServer(&mcp.Implementation{Name: "tools-programmer", Version: core.BuildVersion().Version}, &mcp.ServerOptions{
 		Instructions: instructions,
 	})
 	add(s, "issue_summary", "Read local issue estimates, confirmations, outcomes and observed activity; unknown gaps are not active time and runtime timing is experimental.", nil, func(ctx context.Context, in issueInput) (any, error) {

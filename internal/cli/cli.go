@@ -101,7 +101,7 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		if len(global.Args()) != 0 {
 			return emit(nil, core.Fail("invalid_input", "--version accepts no command"))
 		}
-		return emit(map[string]string{"version": core.Version}, nil)
+		return emit(core.BuildVersion(), nil)
 	}
 	remaining := global.Args()
 	if len(remaining) < 2 {

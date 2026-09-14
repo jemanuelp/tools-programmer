@@ -35,6 +35,25 @@ func TestHelpVersionAndInvalidCommandsDoNotCreateDefaultState(t *testing.T) {
 		}
 	}
 }
+func TestVersionJSONCompatibility(t *testing.T) {
+	t.Setenv("TOOLS_PROGRAMMER_DB", filepath.Join(t.TempDir(), "absent", "history.db"))
+	var out bytes.Buffer
+	if code := Run(context.Background(), []string{"--version"}, &out, forbiddenRunner{t}); code != 0 {
+		t.Fatalf("version failed: %s", out.String())
+	}
+	// Existing consumers can still decode the data envelope as string values.
+	var response struct {
+		Data map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	want := core.BuildVersion()
+	if response.Data["version"] != want.Version || response.Data["commit"] != want.Commit || response.Data["state"] != want.State || response.Data["build"] != want.Build {
+		t.Fatalf("unexpected version envelope: %s", out.String())
+	}
+}
+
 func TestLocalCLIHistorySurvivesSeparateInvocations(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "state", "history.db")
 	sha := strings.Repeat("a", 40)

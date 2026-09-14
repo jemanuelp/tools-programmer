@@ -27,6 +27,74 @@ bin/tools-programmer pr list --project demo
 
 Repository references accept `owner/repo` or `host/owner/repo`, normalize to lowercase, and default to `github.com`. URLs, `.git` suffixes and host ports are not accepted. Registration is **not** evidence of access. Repository renames/redirects are rejected during inspection. Project name and repository are unique and immutable in this MVP; local paths are optional references, never execution directories.
 
+## Version identity and release builds
+
+The next version is **0.2.0**, defined once in `internal/core/version.go`.
+Versioning follows SemVer; Git tags named `vMAJOR.MINOR.PATCH` identify releases,
+not the SQLite schema number. This checkout prepares that version; it does not
+publish a release. Ordinary `go build` always produces a development identity,
+even at a tagged commit.
+
+`--version` keeps the JSON `data.version` string and adds string fields `commit`,
+`state` (`clean`, `dirty`, or `unknown`), and `build` (`development` or `release`).
+For example, without source metadata:
+
+```json
+{"data":{"version":"0.2.0-dev+unknown.unknown","commit":"unknown","state":"unknown","build":"development"}}
+```
+
+With Git metadata, development versions use
+`0.2.0-dev+FULL_COMMIT.dirty` (or `.clean`). `commit` is the full source HEAD SHA;
+for dirty builds it identifies the base commit, **not** the uncommitted changes.
+MCP advertises the same version string. Neither version nor help opens a database;
+version inspection uses embedded Go build information, never a runtime Git command.
+
+### Build an existing release tag
+
+First review, test, and commit the version change through the normal authorized
+workflow. Only with separate approval, create and publish an annotated tag at that
+exact reviewed commit. Never move a published tag: choose a new SemVer version for
+new source. A GitHub release, uploads, and installation are separate optional actions,
+not part of building. The commands below only **verify an existing tag and build**;
+they do not create or publish one.
+
+From the clean checkout of that tag, run in a shell with Python 3 and Go available:
+
+```sh
+set -eu
+test -z "$(git status --porcelain --untracked-files=all)"
+CGO_ENABLED=0 go build -trimpath -buildvcs=true -o bin/tools-programmer ./cmd/tools-programmer
+version=$(bin/tools-programmer --version | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["version"].split("-dev+")[0])')
+tag="v$version"
+test "$(git rev-parse HEAD)" = "$(git rev-parse --verify "refs/tags/$tag^{commit}")"
+test -z "$(git status --porcelain --untracked-files=all)"
+CGO_ENABLED=0 go build -trimpath -buildvcs=true \
+  -ldflags "-X tools-programmer/internal/core.ReleaseTag=$tag" \
+  -o bin/tools-programmer ./cmd/tools-programmer
+bin/tools-programmer --version
+```
+
+Expect `data.version` to be `0.2.0`, `build` to be `release`, `state` to be
+`clean`, and `commit` to match the tag's full commit. A missing/mismatched stamp,
+dirty source, or unknown provenance falls back to development. The stamp asserts
+that the builder verified the tag; the binary cannot prove publication or authenticity.
+For reproducible binaries, keep the exact source, Go toolchain, target GOOS/GOARCH,
+dependencies, build flags, and environment identical; use the pinned `go.sum` and
+`-trimpath`. No build timestamp is injected. Check reproducibility by comparing
+SHA-256 hashes of two builds with those same inputs.
+
+### Source archives
+
+Archives and `-buildvcs=false` builds default to unknown provenance. A trusted
+builder can supply `-X tools-programmer/internal/core.ArchiveRevision=FULL_COMMIT`
+and `-X tools-programmer/internal/core.ArchiveState=clean` in `-ldflags` after
+verifying that the archive exactly matches that commit. Add the matching
+`ReleaseTag` stamp only for a verified release tag. Use `dirty` for modified source;
+omit unverifiable assertions. Revisions must be full lowercase 40-character Git
+SHAs; invalid values become `unknown`. Archive assertions never override embedded
+VCS metadata. They are not cryptographic attestations, and suppressing VCS data
+also suppresses automatic dirty detection: prefer checkout builds when possible.
+
 ## Project identities and pre-commit check
 
 Supply the user-approved GitHub login and Git commit name/email explicitly at registration. Nothing is inferred from the active account, Git configuration, or review declarations. The GitHub login is compared case-insensitively; Git author and committer names/emails must match exactly. Bindings are immutable; identity rotation is not supported. The tool never switches accounts or changes Git configuration.
