@@ -106,11 +106,11 @@ func TestReadOnlyProtocolAndStoredSemantics(t *testing.T) {
 	var names []string
 	for _, tool := range list.Tools {
 		names = append(names, tool.Name)
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint {
+		if tool.Annotations == nil || tool.Annotations.ReadOnlyHint != (tool.Name != "issue_register") || tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint {
 			t.Fatalf("unsafe annotation: %+v", tool)
 		}
 	}
-	if !reflect.DeepEqual(names, []string{"activity_list", "activity_summary", "approval_show", "issue_summary", "pr_list", "project_list", "review_list", "session_list"}) {
+	if !reflect.DeepEqual(names, []string{"activity_list", "activity_summary", "approval_show", "issue_register", "issue_summary", "pr_list", "project_list", "review_list", "session_list"}) {
 		t.Fatalf("surface: %v", names)
 	}
 	projects, _ := db.Projects()

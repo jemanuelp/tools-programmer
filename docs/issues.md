@@ -2,7 +2,7 @@
 
 Issue #1 is closed for its delivered scope. Reusable regression infrastructure belongs to [the laboratory](lab.md) (#2); genuine human-wait (#3), cancellation/restart (#4) and actual OpenChamber (#5) acceptance remain separate and pending. Lab construction does not certify those behaviors.
 
-Issue estimates and runtime observations live in the existing private SQLite database. Nothing is published to GitHub. The CLI and read-only MCP use the same `Service.IssueSummary` and a consistent SQLite read snapshot. **The observer is experimental: fixture tests do not establish accuracy on a live OpenCode/OpenChamber host.**
+Issue estimates and runtime observations live in the existing private SQLite database. Nothing is published to GitHub. CLI and MCP summaries use the same `Service.IssueSummary` and a consistent SQLite read snapshot. **The observer is experimental: fixture tests do not establish accuracy on a live OpenCode/OpenChamber host.**
 
 To discover recorded work without a registered issue, use the [read-only activity MCP tools](activity-mcp.md): `activity_summary {}`, then `session_list {"limit":20}`, then `activity_list` with a returned runtime/session pair. Gap inspection uses `kind=gap` and optional `reason`. These tools report filtered recorded counts, not elapsed active time, and pages are a changing view rather than a cross-page snapshot.
 
@@ -28,7 +28,13 @@ Omit `--remote-id` if it has not been observed; no remote lookup is performed. L
 
 ### Register an existing GitHub issue locally
 
-The CLI accepts an optional canonical issue URL:
+After explicit user authorization, call MCP `issue_register` with:
+
+```json
+{"project":"demo","number":12,"url":"https://github.com/example/demo/issues/12"}
+```
+
+`project`, positive `number` and nonempty `url` are required; `remote_id` is optional and must be an already observed stable GitHub ID. The CLI uses the same registration validation and insert path:
 
 ```sh
 tools-programmer issue add --project demo --number 12 --url https://github.com/example/demo/issues/12
@@ -36,7 +42,9 @@ tools-programmer issue add --project demo --number 12 --url https://github.com/e
 
 - URL must exactly equal `https://REGISTERED_HOST/owner/repo/issues/NUMBER`, using the registered lowercase repository and canonical decimal number. Enterprise hosts are supported. Credentials, ports, query strings (even empty), fragments, percent encodings, case variants, leading/trailing whitespace and trailing slashes are rejected, not normalized.
 - Legacy CLI registration may omit `--url`; existing and new missing URLs consistently read as `"url":""`. No URL is inferred. `issue_summary` returns the stored `id`, `project`, `repository`, `number` and `url` under `data.issue`.
-- Duplicate identity returns `issue_conflict`, including identical retries. Registration does not enrich missing URLs, overwrite history or verify remote existence.
+- Duplicate `(project, number)` or conflicting stable remote identity returns `issue_conflict`, including identical retries. Neither CLI nor MCP inserts a duplicate, enriches a missing URL, or overwrites history. Unknown projects, invalid URLs and identity mismatches insert nothing.
+- Registration asserts an existing issue's identity locally; it does **not verify remote existence**. It never calls GitHub, creates a remote issue, assigns a session, confirms estimates, or changes local/remote approval state. Registration is not work authorization.
+- MCP requires an already migrated private schema v4 database and never initializes or migrates it. The additive migration preserves issue IDs and activity references.
 
 ### Estimation and outcomes
 
@@ -59,7 +67,7 @@ tools-programmer issue outcome --issue-id ISSUE_ID --outcome reopened \
   --actor human-name --rationale 'New acceptance work identified'
 ```
 
-Confirmation is a local declaration, **not authentication of human presence**. An agent must obtain actual explicit approval, never call its own proposal “human-confirmed,” and never infer consent from a successful test. There is no confirmation/assignment mutation tool in the read-only MCP.
+Confirmation is a local declaration, **not authentication of human presence**. An agent must obtain actual explicit approval, never call its own proposal “human-confirmed,” and never infer consent from a successful test. There is no confirmation/assignment mutation tool in MCP; its only mutation is local issue registration.
 
 ## Recorder and accounting contract
 

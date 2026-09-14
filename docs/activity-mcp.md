@@ -4,7 +4,7 @@ Use `activity_summary`, `session_list`, and `activity_list` to inspect observati
 
 ## Quick path
 
-Start the existing read-only stdio endpoint with `tools-programmer --db /absolute/history.db mcp serve`. In an MCP client, call:
+Start the existing stdio endpoint with `tools-programmer --db /absolute/history.db mcp serve`. The activity tools below are read-only; the separate `issue_register` tool can register issues locally. In an MCP client, call:
 
 1. `activity_summary {"assignment":"unassigned"}` to count unassigned observations.
 2. `session_list {"limit":20}` to obtain recorded `runtime` and native `session` identifiers.
