@@ -18,7 +18,7 @@ export async function withRuntimeRead(client, directory, operation) {
   });
   const read = async (kind, session) => {
     if (!validRuntimeID(session) || ++requests > 9 || controller.signal.aborted) throw new Error("Runtime read bound exceeded");
-    const paths = { messages: "/session/{id}/message", session: "/session/{id}", permissions: "/permission", questions: "/question", status: "/session/status" };
+    const paths = { messages: "/session/{id}/message", session: "/session/{id}", permissions: "/permission", questions: "/question", status: "/session/status", health: "/global/health" };
     if (!Object.hasOwn(paths, kind)) throw new Error("Unsupported runtime read");
     const result = await transport.get({
       url: paths[kind], path: { id: session }, query: { directory, ...(kind === "messages" ? { limit: 20 } : {}) },

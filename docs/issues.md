@@ -175,6 +175,7 @@ node --test integrations/opencode/correlation.test.mjs integrations/opencode/par
 node --test integrations/opencode/recovery.test.mjs integrations/opencode/session-snapshot.test.mjs
 node --test integrations/opencode/durable-dispatch.test.mjs
 node --test integrations/opencode/advisory.test.mjs integrations/opencode/context.test.mjs
+node --test integrations/opencode/diagnostics.test.mjs
 # Optional installed-package loader fixture; no live server or provider access:
 OPENCODE_PLUGIN_MODULE=/absolute/node_modules/@opencode-ai/plugin/dist/index.js \
   bun test integrations/opencode/plugin.test.ts
