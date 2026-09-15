@@ -29,6 +29,8 @@ issue           add|observe|link|propose|confirm|outcome|summary (use issue summ
 activity record normalized local runtime event on stdin (no raw payloads)
 
 skill sync      opencode (install/update bundled skill; no database or gh)
+integration sync opencode (publish owned plugin bundle and JSONC entry; no dependencies or state)
+integration info (read embedded capability/build/bundle identity; no installation or database)
 mcp serve       [--enable-project-registration] [--enable-issue-outcomes] (stdio MCP; existing database)
 mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
@@ -112,6 +114,14 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		return emit(nil, core.Fail("invalid_input", "expected command and subcommand; use --help"))
 	}
 	command := remaining[0] + " " + remaining[1]
+	if remaining[0] == "integration" {
+		if len(remaining) == 3 && (remaining[2] == "--help" || remaining[2] == "-h") {
+			fmt.Fprint(out, help)
+			return 0
+		}
+		data, err := runIntegration(*dbPath, command, remaining[2:])
+		return emit(data, err)
+	}
 	if remaining[0] == "issue" || remaining[0] == "activity" {
 		if len(remaining) == 3 && (remaining[2] == "--help" || remaining[2] == "-h") {
 			fmt.Fprint(out, issueHelp)

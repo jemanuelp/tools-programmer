@@ -39,17 +39,19 @@ func startRuntime(ctx context.Context, root, binary, db string, ask bool) (*Runt
 	if _, err := command(ctx, root, r.env, "git", "init", "-q", root+"/repo"); err != nil {
 		return nil, err
 	}
-	for _, file := range []string{"plugin.ts", "observer.mjs", "parent-snapshot.mjs", "session-snapshot.mjs", "runtime-read.mjs", "transport.mjs", "context.mjs", "advisory.mjs", "diagnostics.mjs", "issue-tracking.md"} {
-		b, err := os.ReadFile(sourceRoot + "/integrations/opencode/" + file)
-		if err != nil {
-			return nil, errors.New("observer_source")
-		}
-		if os.WriteFile(root+"/observer/"+file, b, 0600) != nil {
-			return nil, errors.New("observer_copy")
-		}
+	// Exercise the product's explicit distribution command inside this disposable
+	// HOME. No real installation, downloads or database writes are performed here.
+	installed, err := command(ctx, root, r.env, binary, "--db", db, "integration", "sync", "opencode")
+	if err != nil {
+		return nil, errors.New("integration_sync")
 	}
-	if os.Symlink("/opt/plugin/node_modules", root+"/observer/node_modules") != nil {
-		return nil, errors.New("plugin_dependencies")
+	var installation struct {
+		Data struct {
+			Plugin string `json:"plugin"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(installed, &installation) != nil || installation.Data.Plugin == "" {
+		return nil, errors.New("integration_sync_response")
 	}
 	// The pinned config loader also checks its global plugin package. Preseed the
 	// same locked dependency directory rather than allowing an implicit npm fetch.
@@ -80,18 +82,21 @@ func startRuntime(ctx context.Context, root, binary, db string, ask bool) (*Runt
 		assign = "ask"
 	}
 	permission := map[string]any{
-		"*":                       "deny",
-		"tools_programmer_assign": map[string]string{"*": "deny", "lab#1": assign, "lab#2": assign},
-		"bash":                    map[string]string{"*": "deny", "sleep *": "allow"},
-		"task":                    map[string]string{"*": "deny", "worker": "allow"},
-		"question":                "allow",
+		"*":                            "deny",
+		"tools_programmer_assign":      map[string]string{"*": "deny", "lab#1": assign, "lab#2": assign},
+		"tools_programmer_context":     "allow",
+		"tools_programmer_diagnostics": "allow",
+		"tools_programmer_unassign":    map[string]string{"*": "deny", "current-session": "allow"},
+		"bash":                         map[string]string{"*": "deny", "sleep *": "allow"},
+		"task":                         map[string]string{"*": "deny", "worker": "allow"},
+		"question":                     "allow",
 	}
 	config := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"model":   "lab/lab", "small_model": "lab/lab", "default_agent": "lab",
 		"enabled_providers": []string{"lab"}, "share": "disabled", "autoupdate": false,
 		"plugin": []any{[]any{
-			"file://" + root + "/observer/plugin.ts",
+			installation.Data.Plugin,
 			map[string]string{"binary": binary, "database": db},
 		}},
 		"provider": map[string]any{"lab": map[string]any{
@@ -243,7 +248,11 @@ func nativeID(s string) bool {
 	return true
 }
 func (r *Runtime) prompt(session, turn string) error {
-	return r.request(r.ctx, "POST", "/session/"+session+"/prompt_async", map[string]any{"model": map[string]string{"providerID": "lab", "modelID": "lab"}, "agent": "lab", "parts": []any{map[string]string{"type": "text", "text": "[lab:" + turn + "] Execute the bounded fixture."}}}, nil)
+	return r.promptText(session, turn, "Execute the bounded fixture.")
+}
+
+func (r *Runtime) promptText(session, turn, text string) error {
+	return r.request(r.ctx, "POST", "/session/"+session+"/prompt_async", map[string]any{"model": map[string]string{"providerID": "lab", "modelID": "lab"}, "agent": "lab", "parts": []any{map[string]string{"type": "text", "text": "[lab:" + turn + "] " + text}}}, nil)
 }
 
 type runtimePart struct {
@@ -252,6 +261,7 @@ type runtimePart struct {
 	Tool   string `json:"tool"`
 	State  struct {
 		Status   string `json:"status"`
+		Output   string `json:"output"`
 		Metadata struct {
 			SessionID  string `json:"sessionId"`
 			ParentID   string `json:"parentSessionId"`
