@@ -39,6 +39,7 @@ func TestCLIIdentityRegistrationBindingAndCheck(t *testing.T) {
 	run(1, "project", "check", "--project", "demo")
 	run(1, "project", "bind", "--project", "demo", "--repo", "example/wrong", "--github-login", "reviewer", "--git-name", "Review User", "--git-email", "review@example.com")
 	run(0, "project", "bind", "--project", "demo", "--repo", "example/demo", "--github-login", "reviewer", "--git-name", "Review User", "--git-email", "review@example.com")
+	run(0, "project", "origin", "--project", "demo", "--repo", "example/demo", "--origin-url", "git@github-P.com:example/demo.git")
 	if !strings.Contains(run(0, "project", "list"), `"expected_github_login": "reviewer"`) {
 		t.Fatal("identity missing from listing")
 	}
@@ -48,7 +49,7 @@ func TestCLIIdentityRegistrationBindingAndCheck(t *testing.T) {
 		script := `#!/bin/sh
 case "$*" in
 "rev-parse --show-toplevel") pwd ;;
-"config --local --get-all remote.origin.url") printf '%s\n' 'https://github.com/example/demo.git' ;;
+"config --local --get-all remote.origin.url") printf '%s\n' 'git@github-P.com:example/demo.git' ;;
 "var GIT_AUTHOR_IDENT"|"var GIT_COMMITTER_IDENT") printf '%s\n' 'Review User <review@example.com> 1700000000 +0000' ;;
 *) exit 99 ;;
 esac
@@ -79,6 +80,7 @@ func TestFakeGHIdentityChangeAfterWritePreservesUnknownUntilRecovery(t *testing.
 		return out.Bytes()
 	}
 	run(0, "project", "add", "--name", "demo", "--repo", "example/demo", "--github-login", "reviewer", "--git-name", "Review User", "--git-email", "review@example.com")
+	run(0, "project", "origin", "--project", "demo", "--repo", "example/demo", "--origin-url", "git@github-P.com:example/demo.git")
 	run(0, "review", "record", "--project", "demo", "--pr", "8", "--sha", strings.Repeat("a", 40), "--reviewer", "human", "--method", "manual", "--outcome", "approved")
 	var result struct {
 		Data core.Plan `json:"data"`

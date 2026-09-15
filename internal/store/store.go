@@ -126,8 +126,8 @@ func open(path string, readOnly, initialize bool) (*Store, error) {
 	if !initialize {
 		var version int
 		err = db.QueryRow("PRAGMA user_version").Scan(&version)
-		if err == nil && version != 4 {
-			err = core.Fail("identity_unbound", "access requires existing schema v4 state; migrate and explicitly bind legacy projects first")
+		if err == nil && version != 5 {
+			err = core.Fail("identity_unbound", "access requires existing schema v5 state; migrate and explicitly bind legacy projects first")
 		}
 	} else {
 		err = s.migrate()
@@ -151,7 +151,7 @@ func (s *Store) migrate() error {
 	if err := s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 4 {
+	if version > 5 {
 		return core.Fail("newer_schema", "database schema is newer than this binary; upgrade the binary")
 	}
 	if version == 0 {
@@ -175,6 +175,11 @@ PRAGMA user_version=2;`); err != nil {
 	}
 	if version < 4 {
 		if _, err := s.DB.Exec("ALTER TABLE issues ADD COLUMN url TEXT NOT NULL DEFAULT ''; PRAGMA user_version=4;"); err != nil {
+			return err
+		}
+	}
+	if version < 5 {
+		if _, err := s.DB.Exec("ALTER TABLE projects ADD COLUMN origin_url TEXT NOT NULL DEFAULT ''; UPDATE projects SET origin_url='https://' || repo; PRAGMA user_version=5;"); err != nil {
 			return err
 		}
 	}
@@ -213,6 +218,11 @@ func (s *Store) AddProjectContext(ctx context.Context, p core.Project) (core.Pro
 		return p, err
 	}
 	p.Repo = repo
+	// Alias declarations use SetProjectOrigin after registration, never implicit binding.
+	if p.OriginURL != "" {
+		return p, core.Fail("invalid_input", "register the canonical project first, then use project origin")
+	}
+	p.OriginURL = "https://" + repo
 	if p.Path != "" {
 		p.Path, err = filepath.Abs(p.Path)
 		if err != nil {
@@ -225,7 +235,10 @@ func (s *Store) AddProjectContext(ctx context.Context, p core.Project) (core.Pro
 		return p, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, "INSERT INTO projects(name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING", p.Name, p.Repo, p.Path, p.AllowNoChecks, p.CreatedAt, p.ExpectedGitHub, p.GitName, p.GitEmail)
+	if err := checkOriginAvailable(ctx, tx, p.Name, p.Repo); err != nil {
+		return p, err
+	}
+	result, err := tx.ExecContext(ctx, "INSERT INTO projects(name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING", p.Name, p.Repo, p.Path, p.AllowNoChecks, p.CreatedAt, p.ExpectedGitHub, p.GitName, p.GitEmail, p.OriginURL)
 	if err != nil {
 		return p, err
 	}
@@ -240,14 +253,14 @@ func (s *Store) AddProjectContext(ctx context.Context, p core.Project) (core.Pro
 }
 func (s *Store) Project(name string) (core.Project, error) {
 	var p core.Project
-	err := s.DB.QueryRowContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email FROM projects WHERE name=?", name).Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail)
+	err := s.DB.QueryRowContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url FROM projects WHERE name=?", name).Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = core.Fail("not_found", "project not registered")
 	}
 	return p, err
 }
 func (s *Store) Projects() ([]core.Project, error) {
-	rows, err := s.DB.QueryContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email FROM projects ORDER BY name")
+	rows, err := s.DB.QueryContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url FROM projects ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +268,7 @@ func (s *Store) Projects() ([]core.Project, error) {
 	out := []core.Project{}
 	for rows.Next() {
 		var p core.Project
-		if err = rows.Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail); err != nil {
+		if err = rows.Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

@@ -13,6 +13,9 @@ func TestV3URLMigrationPreservesIssueActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 	register(t, s, "one")
+	if _, err := s.DB.Exec("ALTER TABLE projects DROP COLUMN origin_url"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.DB.Exec(`INSERT INTO issues(id,project,repository,number,remote_id,created_at) SELECT 42,name,repo,12,'I_old','old' FROM projects WHERE name='one';
 INSERT INTO activity_segments VALUES('r','s','x',100,42);
 INSERT INTO activity_events VALUES('r','e','s','x','bind','',100,'{"id":"e","runtime":"r","session":"s","segment":"x","kind":"bind","at":100,"project":"one","issue":12}');`); err != nil {

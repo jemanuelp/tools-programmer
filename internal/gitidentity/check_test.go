@@ -18,6 +18,10 @@ func TestCheckUsesCurrentCheckoutAndBothEffectiveIdentities(t *testing.T) {
 		valid            bool
 	}{
 		{"matching", "", "", true},
+		{"canonical with alias registered", "TP_ORIGIN", "https://github.com/example/demo.git", true},
+		{"associated alias", "TP_ORIGIN", "git@github-P.com:example/demo.git", true},
+		{"unknown alias", "TP_ORIGIN", "git@github-X.com:example/demo.git", false},
+		{"alias wrong owner", "TP_ORIGIN", "git@github-P.com:other/demo.git", false},
 		{"author override", "GIT_AUTHOR_NAME", "Different", false},
 		{"author email override", "GIT_AUTHOR_EMAIL", "other@example.com", false},
 		{"committer override", "GIT_COMMITTER_NAME", "Different", false},
@@ -37,7 +41,7 @@ func TestCheckUsesCurrentCheckoutAndBothEffectiveIdentities(t *testing.T) {
 				}
 			}
 			t.Setenv("TP_ROOT", dir)
-			t.Setenv("TP_ORIGIN", "git@github.com:example/demo.git")
+			t.Setenv("TP_ORIGIN", "git@github-P.com:example/demo.git")
 			script := `#!/bin/sh
 case "$*" in
 "rev-parse --show-toplevel") printf '%s\n' "$TP_ROOT" ;;
@@ -55,6 +59,7 @@ esac
 				t.Setenv(tt.key, tt.value)
 			}
 			p := core.Project{Name: "demo", Repo: "github.com/example/demo", Path: dir, ExpectedGitHub: "reviewer", GitName: "Review User", GitEmail: "review@example.com"}
+			p.OriginURL = "git@github-P.com:example/demo.git"
 			r, err := Check(context.Background(), p)
 			if (err == nil) != tt.valid || r.Matches != tt.valid {
 				t.Fatal(r, err)

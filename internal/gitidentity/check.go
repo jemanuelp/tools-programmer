@@ -4,7 +4,6 @@ package gitidentity
 import (
 	"bytes"
 	"context"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,20 +46,7 @@ func run(ctx context.Context, args ...string) (string, error) {
 }
 
 func remoteRepo(raw string) (string, error) {
-	var repo string
-	if strings.HasPrefix(raw, "git@") && strings.Contains(raw, ":") {
-		repo = strings.Replace(strings.TrimPrefix(raw, "git@"), ":", "/", 1)
-	} else {
-		u, err := url.Parse(raw)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "ssh") || u.Host == "" || u.Port() != "" || u.RawQuery != "" || u.Fragment != "" {
-			return "", core.Fail("checkout_mismatch", "origin must be a canonical HTTPS or SSH repository URL")
-		}
-		if u.User != nil && (u.Scheme != "ssh" || u.User.String() != "git") {
-			return "", core.Fail("checkout_mismatch", "origin credentials or nonstandard SSH user are unsupported")
-		}
-		repo = u.Host + "/" + strings.TrimPrefix(u.Path, "/")
-	}
-	return core.CanonicalRepo(strings.TrimSuffix(repo, ".git"))
+	return core.OriginRepo(raw)
 }
 
 func Check(ctx context.Context, p core.Project) (Result, error) {
@@ -92,8 +78,7 @@ func Check(ctx context.Context, p core.Project) (Result, error) {
 	if err != nil {
 		return r, err
 	}
-	repo, err := remoteRepo(raw)
-	if err != nil || repo != p.Repo {
+	if !p.MatchesOrigin(raw) {
 		return r, core.Fail("checkout_mismatch", "checkout origin does not match registered repository")
 	}
 	ident := regexp.MustCompile(`^(.+) <([^<>]+)> [0-9]+ [+-][0-9]{4}$`)

@@ -35,6 +35,7 @@ mcp serve       [--enable-project-registration] [--enable-issue-outcomes] (stdio
 mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
 project bind    --project NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL
+project origin  --project NAME --repo [HOST/]OWNER/REPO --origin-url URL (explicit association; never changes Git origin)
 project check   --project NAME (read-only effective Git author/committer in current checkout)
 project list
 pr sync         --project NAME --prs 1,2
@@ -178,7 +179,7 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 	var name, repo, path, project, prs, sha, reviewer, method, outcome, summary, evidence, id string
 	var pr int
 	var allowNoChecks bool
-	var login, gitName, gitEmail string
+	var login, gitName, gitEmail, originURL string
 	if command == "project add" || command == "project bind" {
 		f.StringVar(&login, "github-login", "", "explicit expected GitHub login")
 		f.StringVar(&gitName, "git-name", "", "expected Git author and committer name")
@@ -191,6 +192,10 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		f.StringVar(&path, "path", "", "optional local path")
 		f.BoolVar(&allowNoChecks, "allow-no-checks", false, "explicitly allow no observed checks")
 	case "project list":
+	case "project origin":
+		f.StringVar(&project, "project", "", "registered project")
+		f.StringVar(&repo, "repo", "", "confirm canonical repository")
+		f.StringVar(&originURL, "origin-url", "", "explicit credential-free associated origin URL")
 	case "project bind":
 		f.StringVar(&project, "project", "", "unbound registered project")
 		f.StringVar(&repo, "repo", "", "confirm registered repository")
@@ -279,6 +284,8 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		data, err = db.AddProject(core.Project{Name: name, Repo: repo, Path: path, AllowNoChecks: allowNoChecks, ExpectedGitHub: login, GitName: gitName, GitEmail: gitEmail})
 	case "project bind":
 		data, err = db.BindProject(project, repo, login, gitName, gitEmail)
+	case "project origin":
+		data, err = db.SetProjectOrigin(project, repo, originURL)
 	case "project check":
 		var p core.Project
 		p, err = db.Project(project)

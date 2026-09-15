@@ -18,7 +18,7 @@ func TestRealCheckoutAssociationAndEnvironmentPrecedence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	config := "[core]\nrepositoryformatversion = 0\nbare = false\n[user]\nname = Config User\nemail = config@example.com\n[remote \"origin\"]\nurl = https://github.com/example/demo.git\n"
+	config := "[core]\nrepositoryformatversion = 0\nbare = false\n[user]\nname = Config User\nemail = config@example.com\n[remote \"origin\"]\nurl = git@github-P.com:example/demo.git\n"
 	for name, data := range map[string]string{".git/HEAD": "ref: refs/heads/main\n", ".git/config": config} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0600); err != nil {
 			t.Fatal(err)
@@ -35,6 +35,10 @@ func TestRealCheckoutAssociationAndEnvironmentPrecedence(t *testing.T) {
 		t.Setenv(key, "expected@example.com")
 	}
 	p := core.Project{Name: "demo", Repo: "github.com/example/demo", Path: dir, ExpectedGitHub: "reviewer", GitName: "Expected User", GitEmail: "expected@example.com"}
+	if _, err := Check(context.Background(), p); err == nil {
+		t.Fatal("unmapped alias accepted")
+	}
+	p.OriginURL = "git@github-P.com:example/demo.git"
 	if result, err := Check(context.Background(), p); err != nil || !result.Matches {
 		t.Fatal(result, err)
 	}
