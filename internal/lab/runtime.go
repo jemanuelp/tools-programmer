@@ -39,7 +39,7 @@ func startRuntime(ctx context.Context, root, binary, db string, ask bool) (*Runt
 	if _, err := command(ctx, root, r.env, "git", "init", "-q", root+"/repo"); err != nil {
 		return nil, err
 	}
-	for _, file := range []string{"plugin.ts", "observer.mjs", "parent-snapshot.mjs", "session-snapshot.mjs", "runtime-read.mjs", "transport.mjs"} {
+	for _, file := range []string{"plugin.ts", "observer.mjs", "parent-snapshot.mjs", "session-snapshot.mjs", "runtime-read.mjs", "transport.mjs", "context.mjs", "advisory.mjs", "diagnostics.mjs", "issue-tracking.md"} {
 		b, err := os.ReadFile(sourceRoot + "/integrations/opencode/" + file)
 		if err != nil {
 			return nil, errors.New("observer_source")
