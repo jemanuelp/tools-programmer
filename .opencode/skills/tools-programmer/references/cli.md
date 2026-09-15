@@ -2,6 +2,8 @@
 
 Use `tools-programmer` on PATH, or the executable path supplied by the user. Check `--version` and `--help`. Put optional `--db PATH` before the command; otherwise `TOOLS_PROGRAMMER_DB` or the application's private state directory is used. Do not invent another database to bypass an unknown operation.
 
+Optional MCP outcome exposure requires explicit server setup with `mcp serve --enable-issue-outcomes`; default is off. Its `issue_outcome` tool accepts project, number, outcome, actor, rationale and `authorized: true`. This field records a declaration, not proof of human presence. On any uncertain result, read `issue_summary` before another write.
+
 ## Local review history
 
 ### Install or update OpenCode guidance
