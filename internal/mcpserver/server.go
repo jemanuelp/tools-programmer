@@ -39,6 +39,7 @@ var reviewSchema = json.RawMessage(`{"type":"object","properties":{"project":{"t
 // No project_check tool is offered: a server cannot certify a client's commit environment.
 type Options struct {
 	EnableProjectRegistration bool
+	EnableIssueOutcomes       bool
 }
 
 func New(db *store.Store, options ...Options) *mcp.Server {
@@ -90,6 +91,9 @@ func New(db *store.Store, options ...Options) *mcp.Server {
 	})
 	addActivityTools(s, db)
 	addIssueRegistration(s, db)
+	if len(options) > 0 && options[0].EnableIssueOutcomes {
+		addIssueOutcome(s, db)
+	}
 	if enabled {
 		addProjectRegistration(s, db)
 	}
