@@ -7,7 +7,7 @@ export function createRecorder(binary, database) {
     const input = JSON.stringify(event);
     if (Buffer.byteLength(input) > 16384) throw new Error("Normalized event exceeds recorder bound");
     await new Promise((resolve, reject) => {
-      const child = spawn(binary, ["--db", database, "activity", "record"], {
+      const child = spawn(binary, ["--db", database, "activity", "record", "--existing-only"], {
         stdio: ["pipe", "pipe", "ignore"], shell: false,
         // No provider credentials are needed by the local recorder.
         env: { PATH: process.env.PATH ?? "" },

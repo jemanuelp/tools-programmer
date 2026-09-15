@@ -21,7 +21,8 @@ const issueHelp = `Local issue history (no GitHub writes):
   issue confirm --proposal-id ID --human NAME --rationale TEXT --human-confirmed
   issue outcome --issue-id ID --outcome completed|cancelled|reopened --actor NAME --rationale TEXT
   issue summary --project NAME --number N
-  activity record < normalized-event.json
+  activity record [--existing-only] < normalized-event.json
+  activity context --runtime ID --session ID --directory ABSOLUTE_PATH (read-only)
   activity dispatch-show --runtime ID --session PARENT_ID --call CALL_ID (read-only)
 
 Confirmation is an explicit local declaration of human approval, not proof of
@@ -36,8 +37,8 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 	var project, remote, url, kind, proposer, rationale, human, outcome, actor string
 	var number, pr, score int
 	var issueID, proposalID int64
-	var confirmed bool
-	var runtime, session, call string
+	var confirmed, existingOnly bool
+	var runtime, session, call, directory string
 	switch command {
 	case "issue add", "issue summary":
 		f.StringVar(&project, "project", "", "registered project")
@@ -69,6 +70,11 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 		f.StringVar(&actor, "actor", "", "actor identity")
 		f.StringVar(&rationale, "rationale", "", "outcome rationale")
 	case "activity record":
+		f.BoolVar(&existingOnly, "existing-only", false, "require current existing state; never initialize or migrate")
+	case "activity context":
+		f.StringVar(&runtime, "runtime", "", "runtime namespace")
+		f.StringVar(&session, "session", "", "authoritative native session")
+		f.StringVar(&directory, "directory", "", "absolute checkout directory")
 	case "activity dispatch-show":
 		f.StringVar(&runtime, "runtime", "", "runtime namespace")
 		f.StringVar(&session, "session", "", "authoritative parent session")
@@ -121,8 +127,10 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 		return nil, err
 	}
 	var db *store.Store
-	if command == "issue summary" || command == "activity dispatch-show" {
+	if command == "issue summary" || command == "activity dispatch-show" || command == "activity context" {
 		db, err = store.OpenReadOnly(path)
+	} else if existingOnly {
+		db, err = store.OpenExisting(path)
 	} else {
 		db, err = store.Open(path)
 	}
@@ -150,6 +158,8 @@ func runIssue(ctx context.Context, path, command string, args []string, in io.Re
 		err = dbView.RecordActivity(event)
 	case "activity dispatch-show":
 		return dbView.Dispatch(runtime, session, call)
+	case "activity context":
+		return dbView.CurrentActivity(runtime, session, directory)
 	}
 	if err != nil {
 		return nil, err

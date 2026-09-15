@@ -1,17 +1,20 @@
 ---
 name: tools-programmer
-description: "Trigger: before commits, project identity check, PR review history, record review, approve PR. Check identities and record exact-SHA reviews and approvals."
+description: "Trigger: issue implementation/tracking, before commits, identity check, PR review/approval. Track explicitly authorized work and exact-SHA reviews."
 license: Apache-2.0
 metadata:
   author: jemanuelp
-  version: "1.1"
+  version: "1.2"
 ---
 
 ## Activation Contract
 
-Use before commits, for project identity checks, technical review recording, review history, or explicit GitHub PR approval through `tools-programmer`.
+Use for direct issue implementation/tracking, before commits, identity checks, technical review recording/history, or explicit GitHub PR approval through `tools-programmer`.
 
 ## Hard Rules
+
+- Read native context for direct issue implementation. Registration/assignment need explicit authorization or matching scoped setup consent; outcomes need separate explicit authorization. Informational/quoted issues authorize no writes. Tracking is advisory: unavailable state must not block ordinary work or create replacement state.
+- Use actual native session identity and persisted readback, never a global last issue. After uncertain writes, verify exact identity/current state before another mutation. Children cannot independently complete parent issues; idle/tests/PRs never imply completion.
 
 - Record only completed technical work against the exact full reviewed head SHA. Never infer review completion from green CI.
 - Keep local verdicts distinct from GitHub approvals and mutation attempt states.
@@ -34,7 +37,7 @@ Use before commits, for project identity checks, technical review recording, rev
 
 ## Execution Steps
 
-1. Read [references/cli.md](references/cli.md); select the registered project and explicit PR numbers.
+1. Read [references/cli.md](references/cli.md); select the registered project and explicit issue/PR. For tracking, follow its issue workflow before the review-only steps below.
 2. Inspect the exact code/test evidence; record reviewer, method, verdict and reviewed SHA.
 3. Create a read-only approval plan; show repository, actor, SHAs, observation dates and all eligibility reasons.
 4. Obtain explicit authorization, then apply that plan. Inspect confirmed review IDs and partial attempt states.
@@ -42,7 +45,7 @@ Use before commits, for project identity checks, technical review recording, rev
 
 ## Output Contract
 
-Report project/PR/SHA, local verdict and freshness, plan ID, confirmed GitHub review IDs, unresolved operations and next safe action. Do not call a local verdict a published approval.
+Report verified issue assignment/outcome or tracking limitations separately from delivery. For reviews, report project/PR/SHA, verdict/freshness, plan ID, confirmed review IDs and unresolved operations. Never call a local verdict a published approval.
 
 ## References
 
