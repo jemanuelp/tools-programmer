@@ -19,7 +19,7 @@ process.stdin.on('end', () => fs.writeFileSync(${JSON.stringify(capture)}, JSON.
     const event = { id: "e", runtime: "r", session: "s", segment: "x", kind: "bind", at: 0 };
     await recorder(event);
     const received = JSON.parse(await readFile(capture, "utf8"));
-    assert.deepEqual(received.args, ["--db", join(dir, "private db"), "activity", "record"]);
+    assert.deepEqual(received.args, ["--db", join(dir, "private db"), "activity", "record", "--existing-only"]);
     assert.deepEqual(received.event, event);
     assert.deepEqual(received.keys, ["PATH"]);
     await assert.rejects(recorder({ id: "x".repeat(17000) }), /bound/);
