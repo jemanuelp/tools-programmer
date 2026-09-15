@@ -6,6 +6,8 @@ on:
       - 'internal/**'
       - 'integrations/opencode/**'
       - 'lab/**'
+      - 'integration.go'
+      - 'integration_test.go'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/lab.yml'

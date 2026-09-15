@@ -14,6 +14,7 @@ export function createObserver(options: {
   readParentDispatches?: (sessionID: string) => Promise<Array<{ callID: string; childSessionID: string }>>;
   readSessionState?: (sessionID: string) => Promise<import("./session-snapshot.mjs").SessionSnapshot>;
   lookupDispatch?: (runtime: string, sessionID: string, callID: string) => Promise<import("./transport.mjs").DispatchRecord | null>;
+  readContext?: (runtime: string, sessionID: string) => Promise<import("./context.mjs").TrackingContext>;
 }): {
   assign(context: { sessionID: string }, project: string, issue: number): Promise<string>;
   event(event: unknown): Promise<void>;
