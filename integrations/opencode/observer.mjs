@@ -5,7 +5,7 @@ const validID = (value) => typeof value === "string" && idPattern.test(value);
 
 // This module never receives a transport for raw runtime objects. Every call to
 // record below constructs an explicit scalar allowlist. It does not log payloads.
-export function createObserver({ record, clock = Date.now, runtime = randomUUID(), readParentDispatches, readSessionState, lookupDispatch }) {
+export function createObserver({ record, clock = Date.now, runtime = randomUUID(), readParentDispatches, readSessionState, lookupDispatch, readContext }) {
   const sessions = new Map();
   const dispatches = new Map();
   const childParents = new Map();
@@ -237,6 +237,24 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
       // is deliberately no session argument in the model-facing tool schema.
       return serial(async () => {
         if (!validID(session)) throw new Error("Missing authoritative session context");
+        if (readContext) {
+          const saved = await readContext(runtime, session);
+          if (saved.project_resolution !== "matched" || (project && saved.project !== project) || saved.warnings?.includes("assignment_project_mismatch")) {
+            throw new Error("Tracking context unavailable or outside the registered checkout; read context before another write");
+          }
+          const same = project ? saved.assignment === "assigned" && saved.issue?.number === issue : saved.assignment === "unassigned";
+          if (same) {
+            // Consult persisted state inside serialization, including after an
+            // uncertain bind. Hydrate without appending a redundant segment.
+            if (sessions.get(session)?.segment !== saved.segment) {
+              const s = { id: session, segment: saved.segment, at: saved.at, active: new Map(), closed: new Set(),
+                assignment: { project, issue }, recoveryAttempted: !readSessionState, recoveryOK: !readSessionState, untargetedWaits: new Set() };
+              await gap(s, "reconnected", Math.max(at, saved.at));
+              sessions.set(session, s);
+            }
+            return "Current assignment verified in persisted state; no new segment recorded.";
+          }
+        }
         const previous = sessions.has(session) ? await ensure(session, at) : undefined;
         if (previous && at <= previous.at) throw new Error("Assignment timestamp has not advanced; retry explicitly");
         const running = previous ? [...previous.active.values()] : [];
@@ -257,7 +275,7 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
     },
     before(input) {
       const at = clock();
-      if (!validID(input.sessionID) || !validID(input.callID) || input.tool === "tools_programmer_assign") return Promise.resolve();
+      if (!validID(input.sessionID) || !validID(input.callID) || input.tool?.startsWith("tools_programmer_")) return Promise.resolve();
       const session = input.sessionID;
       const call = input.callID;
       const task = input.tool === "task";
@@ -308,7 +326,7 @@ export function createObserver({ record, clock = Date.now, runtime = randomUUID(
         const activity = partType === "tool" ? part?.callID : part?.id;
         if (!validID(session) || !validID(activity)) return Promise.resolve();
         if (!["tool", "text", "reasoning"].includes(partType)) return Promise.resolve();
-        if (part?.tool === "tools_programmer_assign") return Promise.resolve();
+        if (part?.tool?.startsWith("tools_programmer_")) return Promise.resolve();
         const isTask = part?.tool === "task";
         const category = isTask ? "delegation" : part?.tool === "question" ? "question" : "tool";
         const status = part?.state?.status;
