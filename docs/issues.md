@@ -166,6 +166,15 @@ Route evidence: tagged [permission GET](https://github.com/anomalyco/opencode/bl
 - The bounded queue/subprocess can lose observations under failure or overload. Subsequent successful recording marks an event-loss gap; errors are static diagnostics without payloads. A permanently stopped observer leaves unresolved starts, not continuing activity.
 - Configuration/type inspection, module tests and synthetic fixtures do not prove actual installed lifecycle accuracy. Remaining runtime acceptance is tracked separately in issues #3–#5, with reusable regression scenarios in #2. No provider spend, host restart or global installation is part of the fixture tests.
 
+## Advisory tracking in OpenCode
+
+The existing plugin appends the owned [issue-tracking prompt](../integrations/opencode/issue-tracking.md) to system and compaction context without replacing other prompts. It does not replace the orchestrator. The [skill reference](../.opencode/skills/tools-programmer/references/cli.md#advisory-issue-workflow) owns detailed authorization, command and uncertain-write recovery instructions.
+
+- Native `tools_programmer_context {}` reads the actual runtime/session against approved, identity-bound checkout mappings in one SQLite snapshot. An absent session is **unknown**, not unassigned. Overlapping registered checkout mappings are ambiguous; no Git origin probing or global latest issue selection occurs.
+- Explicit native assignment/unassignment reads persisted state inside observer serialization. Repeated current assignment does not add a segment. A bind can persist before a later failure; the native wrapper returns readback rather than silently retrying. Recording uses `OpenExisting` through `activity record --existing-only`; advisory reads/writes never initialize or migrate state.
+- Only edit/write/patch tool observations latch a reminder for a subsequent model request. Read-only and tracking/memory tools do not latch it; arbitrary shell commands are intentionally not classified. Cooldowns are session-local, with at most 256 retained reminder entries. Verified state changes clear reminders; unavailable reads do not. Hooks never automatically register issues, assign them, record outcomes or continue a model turn.
+- Optional scoped `assignmentPolicy` setup consent covers direct named-issue implementation only. Default is no standing consent. Native write tools still ask runtime permission. MCP outcome exposure is independently opt-in through `mcp serve --enable-issue-outcomes`; individual outcomes require explicit authorization and actual actor/evidence, not estimates or automatic idle detection.
+
 ## Verification and rollback
 
 ```sh
@@ -186,3 +195,5 @@ go vet ./...
 Fixtures use temporary SQLite and fake GitHub/processes. Existing approval tests remain required. Additive migrations preserve registrations, bindings, review history and unresolved remote operations; MCP never initializes or migrates. There is no destructive reset command. An authorized disposable fresh database can be initialized at an explicitly selected new private path, without deleting the existing one. Never discard unresolved real remote outcomes to bypass a guard.
 
 Code rollback boundaries: domain/store migration and tests; issue CLI/shared summary/MCP and tests; optional observer and its isolated tests/docs. Removing the observer does not remove local issue functionality. **A migrated DB is not backward compatible with the older binary**: retain a v4-capable binary; do not roll back `user_version`, remove tables, or restore stale approval state. No commits or deployment are required to inspect these work units.
+
+The advisory change introduces no migration. Its context/hooks/native lifecycle and optional MCP outcome exposure can be removed independently of existing issue history. Preserve the existing-only recorder safety flag when reverting only prompts/reminders; never delete persisted assignments or outcomes as code rollback.
