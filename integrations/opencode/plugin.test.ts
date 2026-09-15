@@ -51,9 +51,16 @@ const enabled = Boolean(modulePath && isAbsolute(modulePath));
     const binary = join(dir, "recorder");
     await writeFile(binary, `#!${process.execPath}
 import { appendFileSync } from 'node:fs';
-let data=''; process.stdin.on('data', c=>data+=c); process.stdin.on('end', ()=>appendFileSync(${JSON.stringify(capture)},data+'\\n'));
+if (process.argv.includes('info')) {
+  console.log(JSON.stringify({data:{protocol:1,bundle_digest:'a'.repeat(64),capabilities:['activity-context-v1','existing-only-record','explicit-issue-outcome'],binary:{version:'0.2.0-dev+unknown.unknown',commit:'unknown',state:'unknown',build:'development'}}}));
+} else if (process.argv.includes('context')) {
+  const arg = k => process.argv[process.argv.indexOf(k)+1];
+  console.log(JSON.stringify({data:{version:1,runtime:arg('--runtime'),session:arg('--session'),observed_at:new Date().toISOString(),project_resolution:'matched',project:'demo',repository:'github.com/example/demo',assignment:'unknown',warnings:['session_unobserved']}}));
+} else {
+  let data=''; process.stdin.on('data', c=>data+=c); process.stdin.on('end', ()=>appendFileSync(${JSON.stringify(capture)},data+'\\n'));
+}
 `, { mode: 0o700 });
-    const hooks = await factory({ serverUrl: new URL("http://fixture.invalid"), project: { id: "fixture" }, worktree: dir } as never, { binary, database: join(dir, "fixture.db") });
+    const hooks = await factory({ serverUrl: new URL("http://fixture.invalid"), project: { id: "fixture" }, directory: dir, worktree: dir } as never, { binary, database: join(dir, "fixture.db") });
     const assign = hooks.tool!.tools_programmer_assign;
     expect(Object.keys(assign.args).sort()).toEqual(["issue", "project"]);
     let asked = false;

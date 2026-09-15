@@ -166,6 +166,34 @@ Route evidence: tagged [permission GET](https://github.com/anomalyco/opencode/bl
 - The bounded queue/subprocess can lose observations under failure or overload. Subsequent successful recording marks an event-loss gap; errors are static diagnostics without payloads. A permanently stopped observer leaves unresolved starts, not continuing activity.
 - Configuration/type inspection, module tests and synthetic fixtures do not prove actual installed lifecycle accuracy. Remaining runtime acceptance is tracked separately in issues #3–#5, with reusable regression scenarios in #2. No provider spend, host restart or global installation is part of the fixture tests.
 
+## Advisory tracking in OpenCode
+
+The existing plugin appends the owned [issue-tracking prompt](../integrations/opencode/issue-tracking.md) to system and compaction context without replacing other prompts. It does not replace the orchestrator. The [skill reference](../.opencode/skills/tools-programmer/references/cli.md#advisory-issue-workflow) owns detailed authorization, command and uncertain-write recovery instructions.
+
+- Native `tools_programmer_context {}` reads the actual runtime/session against approved, identity-bound checkout mappings in one SQLite snapshot. An absent session is **unknown**, not unassigned. Overlapping registered checkout mappings are ambiguous; no Git origin probing or global latest issue selection occurs.
+- Explicit native assignment/unassignment reads persisted state inside observer serialization. Repeated current assignment does not add a segment. A bind can persist before a later failure; the native wrapper returns readback rather than silently retrying. Recording uses `OpenExisting` through `activity record --existing-only`; advisory reads/writes never initialize or migrate state.
+- Only edit/write/patch tool observations latch a reminder for a subsequent model request. Read-only and tracking/memory tools do not latch it; arbitrary shell commands are intentionally not classified. Cooldowns are session-local, with at most 256 retained reminder entries. Verified state changes clear reminders; unavailable reads do not. Hooks never automatically register issues, assign them, record outcomes or continue a model turn.
+- Optional scoped `assignmentPolicy` setup consent covers direct named-issue implementation only. Default is no standing consent. Native write tools still ask runtime permission. MCP outcome exposure is independently opt-in through `mcp serve --enable-issue-outcomes`; individual outcomes require explicit authorization and actual actor/evidence, not estimates or automatic idle detection.
+
+### Explicit distribution and compatibility
+
+With installation authorization only:
+
+```sh
+tools-programmer integration info
+tools-programmer --db /absolute/existing/history.db integration sync opencode
+```
+
+Sync installs the exact embedded runtime inventory (including the canonical prompt and import declarations) into a content-addressed bundle, verifies it, and publishes its file-URL/options tuple in the selected JSON/JSONC config. It reuses the installer's surgical JSONC and atomic-write safety boundaries, preserving unrelated plugins, comments, permissions, agents and custom tuple options. It refuses modified owned assets, unsafe paths and conflicting binary/database options rather than overwriting user work. Older bundles and unknown files remain available; there is no destructive cleanup. A pre-publication failure may leave an inactive partial bundle that can be resumed explicitly. No database, dependency installation, permission grant, MCP registration or global AGENTS modification occurs. Skill sync still owns exactly two files.
+
+Inspect the returned destination, digest, updated files and config-change flag. Prepare the host's plugin dependency explicitly; the sync command itself performs no download. Quit/restart OpenCode after an authorized install/update, then use `tools_programmer_diagnostics {}`. It checks live host health independently from the resolved package manifest, checks binary feature capabilities instead of trusting a development version string, and compares bundle checksums with the binary. Load-time and current observations must agree; repair/replacement does not retain stale supported status. The verified pair is OpenCode/package 1.18.30/1.18.30; other versions are reported unverified, not silently accepted. Missing native session, absent binary and modified/unmanaged bundles remain redacted warnings, not development gates. Checksums identify bytes, not trusted authorship.
+
+Detailed recovery and optional scoped consent are in the skill reference. Installing a global AGENTS bridge remains optional and unsupported; the project bridge is already present. Never modify global guidance implicitly.
+
+### Evidence boundaries
+
+The isolated lab `advisory` scenario installs the product's bundled integration into a temporary HOME, checks the owned marker in actual provider system messages, and verifies native assignment/no duplicate segment/no idle outcome in SQLite. It also exercises an informational/quoted request with a read-only tool script, explicit switching/unassigning, current-context refresh after a real same-origin host restart, and installed-bundle diagnostics. It must be executed with the pinned host to claim host proof; unit/provider fixtures alone do not establish this. Compaction prompt preservation and next-request reminder rules have deterministic hook tests. The existing laboratory pin is OpenCode/package 1.18.30; inspecting 1.18.31 hook contracts does not relax it. A real-model omission-rate pilot requires separate spending authorization and is not covered by deterministic scripts; the informational script proves absence of automatic writes, not model interpretation.
+
 ## Verification and rollback
 
 ```sh
@@ -186,3 +214,7 @@ go vet ./...
 Fixtures use temporary SQLite and fake GitHub/processes. Existing approval tests remain required. Additive migrations preserve registrations, bindings, review history and unresolved remote operations; MCP never initializes or migrates. There is no destructive reset command. An authorized disposable fresh database can be initialized at an explicitly selected new private path, without deleting the existing one. Never discard unresolved real remote outcomes to bypass a guard.
 
 Code rollback boundaries: domain/store migration and tests; issue CLI/shared summary/MCP and tests; optional observer and its isolated tests/docs. Removing the observer does not remove local issue functionality. **A migrated DB is not backward compatible with the older binary**: retain a v4-capable binary; do not roll back `user_version`, remove tables, or restore stale approval state. No commits or deployment are required to inspect these work units.
+
+The advisory change introduces no migration. Its context/hooks/native lifecycle and optional MCP outcome exposure can be removed independently of existing issue history. Preserve the existing-only recorder safety flag when reverting only prompts/reminders; never delete persisted assignments or outcomes as code rollback.
+
+For an installed integration rollback, explicitly restore the previous owned plugin URL (and matching binary) in config, retain its bundle, then restart OpenCode. Do not run cleanup against user customizations or tracking state. Installer manifests describe file ownership/integrity only; they are not another issue/activity ledger.

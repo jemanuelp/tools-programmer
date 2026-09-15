@@ -19,10 +19,12 @@ Tests must use temporary SQLite and fake GitHub/gh; never real credentials or re
 
 ## Project skill registry
 
+For direct issue implementation, load the existing tools-programmer skill and read native tracking context when available. The OpenCode integration owns the advisory prompt in `integrations/opencode/issue-tracking.md`; this is not a development gate. Without the plugin, report unavailable tracking rather than inventing session IDs or creating replacement state. Informational issue mentions authorize no writes.
+
 Before any explicitly authorized commit, load the project skill and run `tools-programmer project check --project NAME` from the intended checkout, using the registered project and existing database. Require success in the same environment as the commit; check both author and committer. Stop on unbound identity, checkout mismatch or identity mismatch. Never infer expected identities, switch GitHub accounts, change Git configuration, or create replacement state to bypass a block. Commit-time author overrides or preserved authors require separate verification; the ordinary pre-commit check does not certify those flows. Direct `git commit` bypasses this advisory gate; no hooks or global enforcement are installed.
 
 | Skill | Trigger | Path |
 |---|---|---|
-| tools-programmer | Before commits, project identity check, PR review history, record review, approval plan, approve PR | `.opencode/skills/tools-programmer/SKILL.md` |
+| tools-programmer | Issue implementation/tracking, before commits, project identity check, PR review history, record review, approval plan, approve PR | `.opencode/skills/tools-programmer/SKILL.md` |
 
 Read the skill before recording or applying PR reviews. Its local command reference travels with it. It is registered only in this project, not installed globally.
