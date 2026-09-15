@@ -17,17 +17,18 @@ type Call struct {
 	Args map[string]any
 }
 type turn struct {
-	Stages   [][]Call
-	Stage    int
-	Pending  []string
-	Done     bool
-	Requests int
-	Retry    bool
-	Retried  bool
-	RetryAt  time.Time
-	RetryMS  int64
-	First    time.Time
-	Last     time.Time
+	Stages              [][]Call
+	Stage               int
+	Pending             []string
+	Done                bool
+	Requests            int
+	OwnedPromptRequests int
+	Retry               bool
+	Retried             bool
+	RetryAt             time.Time
+	RetryMS             int64
+	First               time.Time
+	Last                time.Time
 }
 type Provider struct {
 	mu        sync.Mutex
@@ -125,6 +126,12 @@ func (p *Provider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.Requests++
+	for _, m := range q.Messages {
+		if m.Role == "system" && strings.Contains(string(m.Content), "tools-programmer:issue-tracking:v1") {
+			t.OwnedPromptRequests++
+			break
+		}
+	}
 	if t.Requests > 16 {
 		fail("provider_request_bound")
 		return
@@ -203,6 +210,13 @@ func (p *Provider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, map[string]any{"index": len(calls), "id": call, "type": "function", "function": map[string]any{"name": c.Name, "arguments": string(args)}})
 	}
 	chatReply(w, q.Stream, calls)
+}
+
+func (p *Provider) ownedPromptSeen(id string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	t := p.turns[id]
+	return t != nil && t.Requests > 0 && t.OwnedPromptRequests == t.Requests
 }
 
 func chatReply(w http.ResponseWriter, stream bool, calls []map[string]any) {

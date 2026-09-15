@@ -43,12 +43,12 @@ func (f *fixture) setup() error {
 	if _, err := os.Stat(f.db); !os.IsNotExist(err) {
 		return errors.New("fixture_not_fresh")
 	}
-	_, err := f.cli("project", "add", "--name", "lab", "--repo", "example/lab", "--github-login", "fixture", "--git-name", "Fixture", "--git-email", "fixture@example.invalid")
+	_, err := f.cli("project", "add", "--name", "lab", "--repo", "example/lab", "--path", f.root+"/repo", "--github-login", "fixture", "--git-name", "Fixture", "--git-email", "fixture@example.invalid")
 	if err != nil {
 		return err
 	}
 	for _, n := range []string{"1", "2"} {
-		if _, err := f.cli("issue", "add", "--project", "lab", "--number", n); err != nil {
+		if _, err := f.cli("issue", "add", "--project", "lab", "--number", n, "--url", "https://github.com/example/lab/issues/"+n); err != nil {
 			return err
 		}
 	}
