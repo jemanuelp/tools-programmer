@@ -190,6 +190,10 @@ Inspect the returned destination, digest, updated files and config-change flag. 
 
 Detailed recovery and optional scoped consent are in the skill reference. Installing a global AGENTS bridge remains optional and unsupported; the project bridge is already present. Never modify global guidance implicitly.
 
+### Evidence boundaries
+
+The isolated lab `advisory` scenario installs the product's bundled integration into a temporary HOME, checks the owned marker in actual provider system messages, and verifies native assignment/no duplicate segment/no idle outcome in SQLite. It also exercises an informational/quoted request with a read-only tool script, explicit switching/unassigning, current-context refresh after a real same-origin host restart, and installed-bundle diagnostics. It must be executed with the pinned host to claim host proof; unit/provider fixtures alone do not establish this. Compaction prompt preservation and next-request reminder rules have deterministic hook tests. The existing laboratory pin is OpenCode/package 1.18.30; inspecting 1.18.31 hook contracts does not relax it. A real-model omission-rate pilot requires separate spending authorization and is not covered by deterministic scripts; the informational script proves absence of automatic writes, not model interpretation.
+
 ## Verification and rollback
 
 ```sh

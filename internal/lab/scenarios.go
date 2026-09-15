@@ -16,6 +16,7 @@ type scenario struct {
 }
 
 var scenarios = []scenario{
+	{"advisory", advisoryTracking},
 	{"contracts", contracts}, {"permission-denial", permissionDenial}, {"fresh-human", freshHuman},
 	{"silent", silent}, {"wait-overlap", waitOverlap}, {"permission-overlap", permissionOverlap}, {"parallel", parallelChildren}, {"retry", retryScenario},
 	{"switch-reuse", switchReuse}, {"background", backgroundScenario}, {"cancel", cancelScenario},
