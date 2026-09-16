@@ -29,6 +29,16 @@ type SessionQuery struct {
 	Cursor string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor from the same normalized filters"`
 }
 
+// ActivityDigestQuery selects observed activity shape for unassigned segments.
+// Assignment is intentionally not an input: digests never expose assigned rows.
+type ActivityDigestQuery struct {
+	Runtime string `json:"runtime,omitempty" jsonschema:"Optional bounded runtime identifier"`
+	From    string `json:"from,omitempty" jsonschema:"Inclusive UTC RFC3339 bound; rounded up to Unix milliseconds"`
+	To      string `json:"to,omitempty" jsonschema:"Exclusive UTC RFC3339 bound; rounded up to Unix milliseconds"`
+	Limit   *int   `json:"limit,omitempty" jsonschema:"Page size, default 20, minimum 1, maximum 100"`
+	Cursor  string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor from the same normalized filters"`
+}
+
 type ActivityQuery struct {
 	Runtime    string `json:"runtime" jsonschema:"Runtime from session_list"`
 	Session    string `json:"session" jsonschema:"Native session ID from session_list"`
@@ -89,6 +99,21 @@ type RecordedSession struct {
 	Session string `json:"session"`
 	RecordedCounts
 	Assignment string `json:"assignment"`
+}
+
+// ActivityDigest is a bounded shape summary of one session's unassigned
+// persisted activity. It deliberately contains no semantic or payload data.
+type ActivityDigest struct {
+	Runtime     string           `json:"runtime"`
+	Session     string           `json:"session"`
+	Events      int64            `json:"events"`
+	Segments    int64            `json:"segments"`
+	Gaps        int64            `json:"gaps"`
+	FirstAt     *int64           `json:"first_at"`
+	LastAt      *int64           `json:"last_at"`
+	ByCategory  map[string]int64 `json:"by_category"`
+	ByGapReason map[string]int64 `json:"by_gap_reason"`
+	Description string           `json:"description"`
 }
 
 type RecordedAssignment struct {
@@ -407,6 +432,223 @@ func (s *Store) SessionList(in SessionQuery) (ActivityPage[RecordedSession], err
 	}
 	if len(out.Data) > n {
 		out.Data = out.Data[:n]
+		last := out.Data[n-1]
+		c.Runtime, c.Session = last.Runtime, last.Session
+		out.NextCursor = encodeActivityCursor(c)
+	}
+	return out, tx.Commit()
+}
+
+var digestCategories = [...]string{"tool", "inference", "retry", "permission", "question", "delegation"}
+var digestGapReasons = [...]string{"observer_restart", "event_loss", "uncertain_inference", "uncorrelated_child", "cancelled", "reconnected", "unsupported_lifecycle"}
+
+const digestEventProjection = `SELECT e.id,e.runtime,e.session,e.segment,e.kind,e.at,e.activity,
+	coalesce(json_extract(e.payload,'$.category'),'') AS category,
+	coalesce(json_extract(e.payload,'$.reason'),'') AS reason`
+
+func digestEventsQuery(where string) string {
+	return `WITH matching AS (` + digestEventProjection + activityJoin + `WHERE ` + where + `),
+	selected_sessions AS (
+		SELECT runtime,session FROM matching GROUP BY runtime,session
+		ORDER BY runtime,session LIMIT ?
+	), selected_events AS (
+		SELECT m.* FROM matching m
+		JOIN selected_sessions ss ON ss.runtime=m.runtime AND ss.session=m.session
+	)
+	SELECT id,runtime,session,segment,kind,at,activity,category,reason
+	FROM selected_events ORDER BY runtime,session,at,id`
+}
+
+func digestSegmentsQuery(where string) string {
+	columns := []string{}
+	for _, category := range digestCategories {
+		columns = append(columns, "sum(category='"+category+"')")
+	}
+	for _, reason := range digestGapReasons {
+		columns = append(columns, "sum(reason='"+reason+"')")
+	}
+	return `WITH matching AS (` + digestEventProjection + activityJoin + `WHERE ` + where + `),
+	selected_sessions AS (
+		SELECT runtime,session FROM matching GROUP BY runtime,session
+		ORDER BY runtime,session LIMIT ?
+	), selected_events AS (
+		SELECT m.* FROM matching m
+		JOIN selected_sessions ss ON ss.runtime=m.runtime AND ss.session=m.session
+	)
+	SELECT runtime,session,segment,count(*),sum(kind='gap'),min(at),max(at),` + strings.Join(columns, ",") + `
+	FROM selected_events GROUP BY runtime,session,segment
+	ORDER BY runtime,session,segment`
+}
+
+func validateDigestEvent(id, runtime, session, segment, kind string, at int64, activity, category, reason string) error {
+	e := core.ActivityEvent{ID: id, Runtime: runtime, Session: session, Segment: segment, Kind: kind, At: at, Activity: activity, Category: category, Reason: reason}
+	if e.Validate() != nil {
+		return fmt.Errorf("invalid stored activity")
+	}
+	return nil
+}
+
+func addDigestSegment(d *ActivityDigest, events, gaps, first, last int64, categoryCounts, reasonCounts []int64) {
+	d.Events += events
+	d.Segments++
+	d.Gaps += gaps
+	if d.FirstAt == nil || first < *d.FirstAt {
+		v := first
+		d.FirstAt = &v
+	}
+	if d.LastAt == nil || last > *d.LastAt {
+		v := last
+		d.LastAt = &v
+	}
+	for i, count := range categoryCounts {
+		if count != 0 {
+			d.ByCategory[digestCategories[i]] += count
+		}
+	}
+	for i, count := range reasonCounts {
+		if count != 0 {
+			d.ByGapReason[digestGapReasons[i]] += count
+		}
+	}
+}
+
+func digestDescription(d ActivityDigest) string {
+	eventWord, segmentWord := "events", "segments"
+	if d.Events == 1 {
+		eventWord = "event"
+	}
+	if d.Segments == 1 {
+		segmentWord = "segment"
+	}
+	description := fmt.Sprintf("Observed %d %s across %d %s", d.Events, eventWord, d.Segments, segmentWord)
+	if d.FirstAt != nil && d.LastAt != nil {
+		description += fmt.Sprintf(" from %d to %d ms", *d.FirstAt, *d.LastAt)
+	}
+	if len(d.ByCategory) == 0 {
+		description += "; categories: none"
+	} else {
+		parts := []string{}
+		for _, category := range digestCategories {
+			if count := d.ByCategory[category]; count != 0 {
+				parts = append(parts, fmt.Sprintf("%s=%d", category, count))
+			}
+		}
+		description += "; categories: " + strings.Join(parts, ", ")
+	}
+	if d.Gaps == 0 {
+		description += "; gaps: none"
+	} else {
+		parts := []string{}
+		for _, reason := range digestGapReasons {
+			if count := d.ByGapReason[reason]; count != 0 {
+				parts = append(parts, fmt.Sprintf("%s=%d", reason, count))
+			}
+		}
+		description += fmt.Sprintf("; gaps: %d (%s)", d.Gaps, strings.Join(parts, ", "))
+	}
+	return description
+}
+
+func (s *Store) ActivityDigest(in ActivityDigestQuery) (ActivityPage[ActivityDigest], error) {
+	out := ActivityPage[ActivityDigest]{Data: []ActivityDigest{}}
+	f, where, args, err := normalizeActivityFilters(AppliedActivityFilters{ActivityFilters: ActivityFilters{Runtime: in.Runtime, From: in.From, To: in.To, Assignment: "unassigned"}})
+	if err != nil {
+		return out, err
+	}
+	n, c, err := pageCursor("digests-runtime-session", f, in.Limit, in.Cursor)
+	if err != nil {
+		return out, err
+	}
+	tx, err := s.DB.BeginTx(s.context(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback()
+	out.Snapshot = snapshot(f)
+	if err = checkActivityAnchor(s.context(), tx, where, args, c, false); err != nil {
+		return out, err
+	}
+	if in.Cursor != "" {
+		where += " AND (e.runtime,e.session)>(?,?)"
+		args = append(args, c.Runtime, c.Session)
+	}
+	pageArgs := append(append([]any{}, args...), n+1)
+
+	// Validate only the selected page plus its one look-ahead session. This
+	// keeps malformed normalized rows from becoming arbitrary output while not
+	// validating unrelated sessions after the page boundary.
+	rows, err := tx.QueryContext(s.context(), digestEventsQuery(where), pageArgs...)
+	if err != nil {
+		return out, err
+	}
+	for rows.Next() {
+		var id, runtime, session, segment, kind, activity, category, reason string
+		var at int64
+		if err = rows.Scan(&id, &runtime, &session, &segment, &kind, &at, &activity, &category, &reason); err != nil {
+			break
+		}
+		if err = validateDigestEvent(id, runtime, session, segment, kind, at, activity, category, reason); err != nil {
+			break
+		}
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return out, err
+	}
+
+	rows, err = tx.QueryContext(s.context(), digestSegmentsQuery(where), pageArgs...)
+	if err != nil {
+		return out, err
+	}
+	var current *ActivityDigest
+	for rows.Next() {
+		var runtime, session, segment string
+		var events, gaps, first, last int64
+		categoryCounts := make([]int64, len(digestCategories))
+		reasonCounts := make([]int64, len(digestGapReasons))
+		dest := []any{&runtime, &session, &segment, &events, &gaps, &first, &last}
+		for i := range categoryCounts {
+			dest = append(dest, &categoryCounts[i])
+		}
+		for i := range reasonCounts {
+			dest = append(dest, &reasonCounts[i])
+		}
+		if err = rows.Scan(dest...); err != nil {
+			break
+		}
+		if current == nil || current.Runtime != runtime || current.Session != session {
+			if current != nil {
+				out.Data = append(out.Data, *current)
+			}
+			if !core.ValidActivityIdentifier(runtime) || !core.ValidActivityIdentifier(session) || !core.ValidActivityIdentifier(segment) {
+				err = fmt.Errorf("invalid stored activity")
+				break
+			}
+			current = &ActivityDigest{Runtime: runtime, Session: session, ByCategory: map[string]int64{}, ByGapReason: map[string]int64{}}
+		}
+		addDigestSegment(current, events, gaps, first, last, categoryCounts, reasonCounts)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return out, err
+	}
+	if current != nil {
+		out.Data = append(out.Data, *current)
+	}
+	hasMore := len(out.Data) > n
+	if hasMore {
+		out.Data = out.Data[:n]
+	}
+	for i := range out.Data {
+		out.Data[i].Description = digestDescription(out.Data[i])
+	}
+	if hasMore {
 		last := out.Data[n-1]
 		c.Runtime, c.Session = last.Runtime, last.Session
 		out.NextCursor = encodeActivityCursor(c)

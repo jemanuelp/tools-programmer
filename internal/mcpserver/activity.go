@@ -17,6 +17,9 @@ func addActivityTools(server *mcp.Server, db *store.Store) {
 	addActivity(server, "session_list", "List only sessions with matching recorded events. Counts and mixed classification cover matching segments, not full sessions. Keyset runtime/session order; default 20, maximum 100; next_cursor null ends traversal. Changing view per page.", func(ctx context.Context, in store.SessionQuery) (store.ActivityPage[store.RecordedSession], error) {
 		return db.WithReadContext(ctx).SessionList(in)
 	})
+	addActivity(server, "activity_digest", "Summarize the observed shape of unassigned activity per session. This is not a semantic task summary or complete agent-time calculation. Keyset runtime/session order; default 20, maximum 100; next_cursor null ends traversal. Changing view per page.", func(ctx context.Context, in store.ActivityDigestQuery) (store.ActivityPage[store.ActivityDigest], error) {
+		return db.WithReadContext(ctx).ActivityDigest(in)
+	})
 	addActivity(server, "activity_list", "Inspect allowlisted events for a runtime/session, including kind=gap and reason. Assignment comes from persisted segments. Keyset at/id order; default 20, maximum 100; next_cursor null ends traversal. Unknown sessions return empty data; changing view per page.", func(ctx context.Context, in store.ActivityQuery) (store.ActivityPage[store.RecordedActivity], error) {
 		return db.WithReadContext(ctx).ActivityList(in)
 	})

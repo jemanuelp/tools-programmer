@@ -121,6 +121,10 @@ func TestActivityReadsUseExistingIndexAndCanceledContext(t *testing.T) {
 	if err == nil {
 		t.Fatal("canceled session list succeeded")
 	}
+	_, err = read.ActivityDigest(ActivityDigestQuery{})
+	if err == nil {
+		t.Fatal("canceled activity digest succeeded")
+	}
 	_, err = read.ActivityList(ActivityQuery{Runtime: "r", Session: "s"})
 	if err == nil {
 		t.Fatal("canceled event list succeeded")

@@ -129,7 +129,7 @@ func TestActivityToolSchemas(t *testing.T) {
 	for _, tool := range listed.Tools {
 		tools[tool.Name] = tool
 	}
-	for _, name := range []string{"activity_summary", "session_list", "activity_list"} {
+	for _, name := range []string{"activity_summary", "session_list", "activity_digest", "activity_list"} {
 		t.Run(name, func(t *testing.T) {
 			tool := tools[name]
 			if tool == nil {
@@ -147,7 +147,10 @@ func TestActivityToolSchemas(t *testing.T) {
 				}
 				return schema
 			}
-			input := map[string]string{"runtime": "string", "from": "string", "to": "string", "assignment": "string"}
+			input := map[string]string{"runtime": "string", "from": "string", "to": "string"}
+			if name != "activity_digest" {
+				input["assignment"] = "string"
+			}
 			required := ""
 			if name != "activity_summary" {
 				input["limit"], input["cursor"] = "integer|null", "string"
@@ -177,6 +180,20 @@ func TestActivityToolSchemas(t *testing.T) {
 					"at": "integer", "activity": "string", "category": "string", "reason": "string", "assignment": "null|object",
 				})
 				assertActivitySchemaObject(t, row["assignment"], "null|object", "project number", map[string]string{"project": "string", "number": "integer"})
+				return
+			}
+			if name == "activity_digest" {
+				row := assertActivitySchemaObject(t, props["data"].Items, "object", "runtime session events segments gaps first_at last_at by_category by_gap_reason description", map[string]string{
+					"runtime": "string", "session": "string", "events": "integer", "segments": "integer", "gaps": "integer",
+					"first_at": "integer|null", "last_at": "integer|null", "by_category": "object", "by_gap_reason": "object", "description": "string",
+				})
+				for _, field := range []string{"by_category", "by_gap_reason"} {
+					var values activitySchema
+					if err := json.Unmarshal(row[field].AdditionalProperties, &values); err != nil {
+						t.Fatal(err)
+					}
+					assertActivitySchemaType(t, &values, "integer")
+				}
 				return
 			}
 			counts := map[string]string{
@@ -243,7 +260,7 @@ func TestActivityDiscoveryUnassignedAndReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 9 {
+	if len(tools.Tools) != 10 {
 		t.Fatal(len(tools.Tools))
 	}
 	for _, tool := range tools.Tools {
@@ -399,6 +416,111 @@ func TestActivityPersistedSwitchesAndFilteredScope(t *testing.T) {
 	p := activityCall[store.ActivityPage[store.RecordedSession]](t, client, ctx, "session_list", map[string]any{"from": "1970-01-01T00:00:02.1Z", "to": "1970-01-01T00:00:02.3Z"})
 	if p.Data[0].Segments != 1 || p.Data[0].Assignment != "assigned" || p.Data[0].Events != 2 || *p.Data[0].FirstAt != 2100 {
 		t.Fatal(p)
+	}
+}
+
+func TestActivityDigestUnassignedShapeAndPrivacy(t *testing.T) {
+	w, r, path := activityFixture(t)
+	for i := 0; i < 23; i++ {
+		session := fmt.Sprintf("session-%02d", i)
+		recordEvent(t, w, "runtime", session, "segment", session, "bind", 1000)
+		if i == 0 {
+			if _, err := w.DB.Exec(`INSERT INTO activity_events(runtime,id,session,segment,kind,activity,at,payload) VALUES('runtime','gap','session-00','segment','gap','',2000,'{"reason":"event_loss","prompt":"SECRET_PROMPT","args":"SECRET_ARGS","result":"SECRET_RESULT","environment":"SECRET_ENV","file":"SECRET_FILE"}')`); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := w.AddProject(core.Project{Name: "assigned", Repo: "example/assigned", ExpectedGitHub: "reviewer", GitName: "Reviewer", GitEmail: "reviewer@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.AddIssue("assigned", 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RecordActivity(core.ActivityEvent{ID: "assigned-bind", Runtime: "runtime", Session: "session-00", Segment: "assigned", Kind: "bind", At: 3000, Project: "assigned", Issue: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RecordActivity(core.ActivityEvent{ID: "assigned-start", Runtime: "runtime", Session: "session-00", Segment: "assigned", Kind: "start", At: 4000, Activity: "work", Category: "tool"}); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, ctx := connect(t, r)
+	first := activityCall[store.ActivityPage[store.ActivityDigest]](t, client, ctx, "activity_digest", map[string]any{"limit": 20})
+	if len(first.Data) != 20 || first.NextCursor == nil || first.Data[0].Runtime != "runtime" || first.Data[0].Session != "session-00" {
+		t.Fatalf("first digest page: %+v", first)
+	}
+	digest := first.Data[0]
+	if digest.Events != 2 || digest.Segments != 1 || digest.Gaps != 1 || digest.FirstAt == nil || *digest.FirstAt != 1000 || digest.LastAt == nil || *digest.LastAt != 2000 || digest.ByCategory["tool"] != 0 || digest.ByGapReason["event_loss"] != 1 {
+		t.Fatalf("unexpected unassigned digest: %+v", digest)
+	}
+	if digest.Description == "" || !strings.Contains(digest.Description, "event_loss=1") || strings.Contains(digest.Description, "SECRET_") {
+		t.Fatalf("unexpected digest description: %q", digest.Description)
+	}
+	repeated := activityCall[store.ActivityPage[store.ActivityDigest]](t, client, ctx, "activity_digest", map[string]any{"limit": 20})
+	if !reflect.DeepEqual(first.Data, repeated.Data) || first.Snapshot.Filters != repeated.Snapshot.Filters {
+		t.Fatal("digest is not deterministic")
+	}
+	last := activityCall[store.ActivityPage[store.ActivityDigest]](t, client, ctx, "activity_digest", map[string]any{"limit": 20, "cursor": *first.NextCursor})
+	if len(last.Data) != 3 || last.NextCursor != nil {
+		t.Fatalf("last digest page: %+v", last)
+	}
+	for i, row := range append(first.Data, last.Data...) {
+		wantEvents := int64(1)
+		if i == 0 {
+			wantEvents = 2
+		}
+		if row.Runtime != "runtime" || row.Events != wantEvents || row.Segments != 1 || row.ByCategory == nil || row.ByGapReason == nil {
+			t.Fatalf("unexpected digest row: %+v", row)
+		}
+	}
+	empty := activityCall[store.ActivityPage[store.ActivityDigest]](t, client, ctx, "activity_digest", map[string]any{"runtime": "unknown"})
+	if len(empty.Data) != 0 || empty.NextCursor != nil {
+		t.Fatalf("unknown digest scope: %+v", empty)
+	}
+	afterSuccessful, err := os.ReadFile(path)
+	if err != nil || !reflect.DeepEqual(before, afterSuccessful) {
+		t.Fatal("digest changed database", err)
+	}
+	if _, err := w.DB.Exec(`INSERT INTO activity_events(runtime,id,session,segment,kind,activity,at,payload) VALUES('runtime','broken','session-01','segment','gap','',3000,'SECRET_BROKEN_JSON')`); err != nil {
+		t.Fatal(err)
+	}
+	malformedBefore, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "activity_digest", Arguments: map[string]any{"runtime": "runtime", "limit": 20}})
+	b, _ := json.Marshal(result)
+	if err != nil || result == nil || !result.IsError || !strings.Contains(string(b), "storage_error") || strings.Contains(string(b), "SECRET_") {
+		t.Fatalf("malformed digest result: %s %v", b, err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !reflect.DeepEqual(malformedBefore, after) {
+		t.Fatal("digest changed database", err)
+	}
+}
+
+func TestActivityDigestExcludesAssignedSegments(t *testing.T) {
+	w, r, _ := activityFixture(t)
+	if _, err := w.AddProject(core.Project{Name: "assigned", Repo: "example/assigned", ExpectedGitHub: "reviewer", GitName: "Reviewer", GitEmail: "reviewer@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.AddIssue("assigned", 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	recordEvent(t, w, "r", "mixed", "free", "free-bind", "bind", 1000)
+	if err := w.RecordActivity(core.ActivityEvent{ID: "issue-bind", Runtime: "r", Session: "mixed", Segment: "issue", Kind: "bind", At: 2000, Project: "assigned", Issue: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RecordActivity(core.ActivityEvent{ID: "issue-start", Runtime: "r", Session: "mixed", Segment: "issue", Kind: "start", At: 2100, Activity: "work", Category: "tool"}); err != nil {
+		t.Fatal(err)
+	}
+	client, ctx := connect(t, r)
+	got := activityCall[store.ActivityPage[store.ActivityDigest]](t, client, ctx, "activity_digest", map[string]any{"runtime": "r"})
+	if len(got.Data) != 1 || got.Data[0].Events != 1 || got.Data[0].Segments != 1 || got.Data[0].FirstAt == nil || *got.Data[0].FirstAt != 1000 || strings.Contains(got.Data[0].Description, "tool") {
+		t.Fatalf("assigned activity leaked into digest: %+v", got)
 	}
 }
 
@@ -573,6 +695,10 @@ func TestActivitySummaryConsistentDuringArrivals(t *testing.T) {
 		s := activityCall[store.ActivitySummaryResult](t, client, ctx, "activity_summary", map[string]any{})
 		if s.Data.Events != s.Data.ByKind["bind"]+s.Data.ByKind["gap"] || s.Data.Gaps != s.Data.ByReason["event_loss"] || s.Data.Events != s.Data.UnassignedEvents || s.Data.Segments != 1 {
 			t.Fatalf("inconsistent request snapshot: %+v", s)
+		}
+		d := activityCall[store.ActivityPage[store.ActivityDigest]](t, client, ctx, "activity_digest", map[string]any{"runtime": "r"})
+		if len(d.Data) != 1 || d.Data[0].Runtime != "r" || d.Data[0].Session != "s" || d.Data[0].Segments != 1 || d.Data[0].Events < d.Data[0].Gaps {
+			t.Fatalf("inconsistent digest snapshot: %+v", d)
 		}
 	}
 	if err := <-done; err != nil {

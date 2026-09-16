@@ -36,7 +36,7 @@ func TestProjectRegistrationProtocol(t *testing.T) {
 	}
 	session, ctx := connect(t, db, Options{EnableProjectRegistration: true})
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 10 {
+	if err != nil || len(tools.Tools) != 11 {
 		t.Fatalf("%+v %v", tools, err)
 	}
 	for _, tool := range tools.Tools {
