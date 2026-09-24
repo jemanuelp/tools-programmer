@@ -18,6 +18,10 @@ CGO_ENABLED=0 go build -trimpath -o bin/tools-programmer ./cmd/tools-programmer
 bin/tools-programmer --version
 bin/tools-programmer --help
 
+# Synchronize the bundled OpenCode skill, integration and MCP registration.
+# The command uses the selected database path but never opens or changes it.
+bin/tools-programmer --db /private/directory/history.db sync opencode
+
 bin/tools-programmer project add --name demo --repo example/demo --path /path/to/checkout \
   --github-login expected-login --git-name 'Expected User' --git-email expected@example.com
 bin/tools-programmer project list
@@ -276,6 +280,16 @@ Validation and normalization are shared with the CLI: repositories are lowercase
 Registration is a declaration, **not ownership, repository access or committing identity certification**. Run CLI `project check` separately in the actual committing environment. The tool uses only the selected existing registry; it never initializes/migrates a database, creates repositories, assigns sessions, backfills issues/activity, or changes review/approval history. Duplicate names or canonical repositories return `project_conflict` without overwriting bindings, including competing calls. Validation errors retain shared codes (`invalid_input`, `identity_unbound`); storage failures are sanitized as `storage_error`. Cancellation before persistence prevents writes; cancellation before transaction commit rolls back. A successfully committed declaration is not undone by later transport cancellation: use `project_list` to resolve an uncertain response, not a blind retry.
 
 ### Safe OpenCode registration
+
+For the complete setup, `sync opencode` runs `skill sync opencode`,
+`integration sync opencode`, and `mcp install opencode` in that order. It
+resolves and validates the database path before the first write, reports each
+component result, and returns `failed_step` with a nonzero exit status when a
+later component fails. It reuses each component's fail-closed conflict and
+atomic-write checks, preserves unrelated configuration, and is safe to repeat.
+It does not modify `AGENTS.md`, install dependencies, or install or replace the
+executable. The individual commands remain available when a component needs to
+be repaired separately.
 
 `mcp install opencode` uses the resolved absolute path of its own executable (not PATH). It pins the selected database as an absolute `--db` argument, including when selected through `TOOLS_PROGRAMMER_DB` or the default location. Relative paths are resolved at installation time, so future client working directories cannot select another database. Later environment changes do not redirect this registration. Keep the binary at that location; after moving it or changing databases, inspect and update the registration manually.
 
