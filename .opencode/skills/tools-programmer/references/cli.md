@@ -16,6 +16,17 @@ The trusted plugin adapter uses `activity context --runtime ID --session ID --di
 
 ### Setup and recovery
 
+With explicit authorization, `tools-programmer --db /absolute/history.db sync opencode`
+runs `skill sync opencode`, `integration sync opencode`, and `mcp install opencode`
+in that order. It validates the selected database path before the first write,
+reports all completed component results, and returns a nonzero status plus
+`failed_step` when a later component fails. The operation is idempotent, keeps
+unrelated configuration, and reuses each component's atomic writes and
+fail-closed conflict checks. It never opens or changes the database, edits
+`AGENTS.md`, installs dependencies, or installs/replaces the executable. Resolve
+the reported conflict and rerun, or use an individual component command when
+repairing setup separately.
+
 Skill sync does not install the plugin. With explicit installation authorization, run `tools-programmer --db /absolute/history.db integration sync opencode`. It publishes the binary's embedded runtime assets and declarations under the selected OpenCode config directory's `tools-programmer-integration/DIGEST/`, then atomically updates only the owned plugin URL in JSON/JSONC. It prefers `opencode.jsonc`, then `opencode.json`; legacy-only `config.json` requires manual resolution. Existing comments, permissions, agents, unrelated plugins and owned tuple policy options remain unchanged. New tuples contain only absolute binary/database options, not standing consent or permission grants.
 
 The command creates missing config/bundle directories, never the database. Owned asset drift, symlink components, conflicting binary/database options, duplicate managed entries and malformed config are refused. It preserves unknown files and previous bundles. File writes are atomic individually; config publication happens only after bundle verification. A failure may leave an inactive partial bundle; rerun after resolving the reported condition. Use trusted directories without concurrent edits. There is no force-overwrite or automatic cleanup. Rebuild the executable to ship updated assets; `integration info` reports its feature protocol, bundle digest and build identity without opening state. Manually configured source-checkout observers are not owned by sync; remove duplicate observer entries only with explicit authorization.

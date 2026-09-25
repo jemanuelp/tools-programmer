@@ -67,7 +67,7 @@ tools-programmer issue outcome --issue-id ISSUE_ID --outcome reopened \
   --actor human-name --rationale 'New acceptance work identified'
 ```
 
-Confirmation is a local declaration, **not authentication of human presence**. An agent must obtain actual explicit approval, never call its own proposal “human-confirmed,” and never infer consent from a successful test. There is no confirmation/assignment mutation tool in MCP; its only mutation is local issue registration.
+Confirmation is a local declaration, **not authentication of human presence**. An agent must obtain actual explicit approval, never call its own proposal “human-confirmed,” and never infer consent from a successful test. There is no confirmation/assignment mutation tool in MCP. `issue_estimate_propose` is available only when the operator explicitly starts MCP with `mcp serve --enable-issue-estimates`; it uses the same local proposal validation as the CLI and returns the appended proposal ID. Local issue registration remains the only default MCP mutation.
 
 ## Recorder and accounting contract
 
