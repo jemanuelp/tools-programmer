@@ -279,6 +279,16 @@ Validation and normalization are shared with the CLI: repositories are lowercase
 
 Registration is a declaration, **not ownership, repository access or committing identity certification**. Run CLI `project check` separately in the actual committing environment. The tool uses only the selected existing registry; it never initializes/migrates a database, creates repositories, assigns sessions, backfills issues/activity, or changes review/approval history. Duplicate names or canonical repositories return `project_conflict` without overwriting bindings, including competing calls. Validation errors retain shared codes (`invalid_input`, `identity_unbound`); storage failures are sanitized as `storage_error`. Cancellation before persistence prevents writes; cancellation before transaction commit rolls back. A successfully committed declaration is not undone by later transport cancellation: use `project_list` to resolve an uncertain response, not a blind retry.
 
+### Opt-in issue estimate proposals
+
+To expose `issue_estimate_propose`, explicitly start the server with:
+
+```sh
+tools-programmer --db /private/directory/history.db mcp serve --enable-issue-estimates
+```
+
+Without the flag (or with `=false`), the tool is absent and calls are rejected without writes. The installer does not enable it. The tool accepts `project`, `number`, `kind` (`initial`, `revision`, or `final`), Fibonacci `score` (`1`, `2`, `3`, `5`, `8`, `13`, or `21`), `proposer`, and `rationale`. It resolves the registered local issue, returns the persisted proposal including its local `id`, and appends history without overwriting earlier proposals. It never confirms an estimate; confirmation remains a separate explicit human action and follows the existing initial-baseline sequence rules.
+
 ### Safe OpenCode registration
 
 For the complete setup, `sync opencode` runs `skill sync opencode`,

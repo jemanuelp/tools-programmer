@@ -32,7 +32,7 @@ skill sync      opencode (install/update bundled skill; no database or gh)
 integration sync opencode (publish owned plugin bundle and JSONC entry; no dependencies or state)
 integration info (read embedded capability/build/bundle identity; no installation or database)
 sync            opencode (run skill, integration and MCP setup in order; no executable or AGENTS.md changes)
-mcp serve       [--enable-project-registration] [--enable-issue-outcomes] (stdio MCP; existing database)
+mcp serve       [--enable-project-registration] [--enable-issue-estimates] [--enable-issue-outcomes] (stdio MCP; existing database)
 mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
 project bind    --project NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL
@@ -150,11 +150,12 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 			flags := flag.NewFlagSet(command, flag.ContinueOnError)
 			flags.SetOutput(io.Discard)
 			enabled := flags.Bool("enable-project-registration", false, "allow explicit local project declarations")
+			estimates := flags.Bool("enable-issue-estimates", false, "expose local issue estimate proposals")
 			outcomes := flags.Bool("enable-issue-outcomes", false, "expose explicit local issue outcomes; not assignment consent")
 			if err := flags.Parse(remaining[2:]); err != nil || len(flags.Args()) != 0 {
-				return emit(nil, core.Fail("invalid_input", "expected: [--db PATH] mcp serve [--enable-project-registration] [--enable-issue-outcomes]"))
+				return emit(nil, core.Fail("invalid_input", "expected: [--db PATH] mcp serve [--enable-project-registration] [--enable-issue-estimates] [--enable-issue-outcomes]"))
 			}
-			if err := serveMCP(ctx, *dbPath, in, out, mcpserver.Options{EnableProjectRegistration: *enabled, EnableIssueOutcomes: *outcomes}); err != nil {
+			if err := serveMCP(ctx, *dbPath, in, out, mcpserver.Options{EnableProjectRegistration: *enabled, EnableIssueEstimates: *estimates, EnableIssueOutcomes: *outcomes}); err != nil {
 				return emit(nil, err)
 			}
 			return 0
