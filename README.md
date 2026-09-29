@@ -29,7 +29,7 @@ bin/tools-programmer pr sync --project demo --prs 8
 bin/tools-programmer pr list --project demo
 ```
 
-Repository references accept `owner/repo` or `host/owner/repo`, normalize to lowercase, and default to `github.com`. URLs, `.git` suffixes and host ports are not accepted. Registration is **not** evidence of access. Repository renames/redirects are rejected during inspection. Project name and repository are unique and immutable in this MVP; local paths are optional references, never execution directories.
+Repository references accept `owner/repo` or `host/owner/repo`, normalize to lowercase, and default to `github.com`. URLs, `.git` suffixes and host ports are not accepted. Registration is **not** evidence of access. Repository renames/redirects are rejected during inspection. Project name and repository are unique and immutable in this MVP; local paths are optional references and can be explicitly rebound, never used as execution directories.
 
 ## Version identity and release builds
 
@@ -103,13 +103,22 @@ also suppresses automatic dirty detection: prefer checkout builds when possible.
 
 Supply the user-approved GitHub login and Git commit name/email explicitly at registration. Nothing is inferred from the active account, Git configuration, or review declarations. The GitHub login is compared case-insensitively; Git author and committer names/emails must match exactly. Bindings are immutable; identity rotation is not supported. The tool never switches accounts or changes Git configuration.
 
-The check opens an existing v5 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
+The check opens an existing v6 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
 
 ```sh
 tools-programmer project check --project demo
 ```
 
-This local check never invokes gh. It reads `git var GIT_AUTHOR_IDENT` and `GIT_COMMITTER_IDENT`, including environment and effective configuration overrides, rather than checking `user.name`/`user.email` alone. It requires a working tree with a single local `origin` URL matching the registered repository or its explicitly associated origin; supported forms are HTTPS, `ssh://git@host/owner/repo.git`, and `git@host:owner/repo.git`. Custom ports, unregistered aliases, URL credentials, escapes, queries, fragments and remote helpers are not accepted. If registration has a path, its resolved directory must equal the checkout root. Subdirectories are supported, but a different worktree path requires a pathless registration. Git repository-redirection environment variables are refused. Only the current directory is used for execution, never a stored project path. Git subprocesses are bounded to 10 seconds and 64 KiB per output stream; stderr is suppressed.
+This local check never invokes gh. It reads `git var GIT_AUTHOR_IDENT` and `GIT_COMMITTER_IDENT`, including environment and effective configuration overrides, rather than checking `user.name`/`user.email` alone. It requires a working tree with a single local `origin` URL matching the registered repository or its explicitly associated origin; supported forms are HTTPS, `ssh://git@host/owner/repo.git`, and `git@host:owner/repo.git`. Custom ports, unregistered aliases, URL credentials, escapes, queries, fragments and remote helpers are not accepted. If registration has a path, its resolved directory must equal the checkout root. Subdirectories are supported, and changing a worktree path requires `project rebind-checkout`. Git repository-redirection environment variables are refused. Only the current directory is used for check execution, never a stored project path. Git subprocesses are bounded to 10 seconds and 64 KiB per output stream; stderr is suppressed.
+
+### Move a registered checkout
+
+```sh
+tools-programmer project rebind-checkout --project demo --path /absolute/path/to/new/checkout
+tools-programmer project list
+```
+
+The explicit target may be a symlink or subdirectory of a non-bare working tree, including a linked worktree; the stored path is its canonical Git root. A pathless registration can bind this way. The command inspects Git **outside** the database transaction with subprocesses rooted at the target (not the current directory), checks its local origin against the canonical repository or registered alias, and verifies the effective author and committer in the current environment. It makes no Git/configuration changes, network calls or GitHub writes. Only a successfully changed path appends an audit event (`checkout_rebindings`: old/new path, UTC timestamp, result); rebinding to the same canonical root is a no-op. A concurrent policy/path change fails instead of overriding it. Project creation time and all review, issue, activity, plan and operation history remain unchanged. Existing plans refer to the old project policy and cannot be applied after a rebind; create a fresh plan. Unresolved operations still require read-only reconciliation. The new path takes over activity matching without rewriting earlier events. This is a local syntactic identity check, not network attestation or proof of checkout contents.
 
 ### Explicit origin aliases
 
@@ -136,7 +145,9 @@ Schema v3 adds issue/estimation/activity tables and append-only guards. Ordinary
 
 Schema v4 adds `issues.url` with an empty-string default. Existing issue IDs, activity references and append-only guards are preserved. Missing URLs remain `"url":""` in registration and summary output; they are not inferred or backfilled. Upgrade explicitly through an ordinary CLI command before launching MCP; MCP does not migrate state.
 
-Schema v5 adds `projects.origin_url` and initializes it from the canonical repository, without granting alias acceptance. All existing identity and historical rows remain intact. An explicitly authorized ordinary CLI operation (including `project origin` or `project list`) migrates older state; read-only checks and native/MCP access require v5 and never migrate. Older binaries reject v5, so upgrade consumers before using migrated state; do not downgrade or replace the database.
+Schema v5 adds `projects.origin_url` and initializes it from the canonical repository, without granting alias acceptance. All existing identity and historical rows remain intact. An explicitly authorized ordinary CLI operation (including `project origin` or `project list`) migrates older state; read-only checks and native/MCP access never migrate. Older binaries reject newer schemas, so upgrade consumers before using migrated state; do not downgrade or replace the database.
+
+Schema v6 adds the append-only `checkout_rebindings` audit table. Ordinary writable open migrates v5 transactionally; an attempted rebind can leave this migration in place even when subsequent target validation fails, but it cannot change the project path or append an audit event on validation failure. Existing histories remain intact. Read-only checks and MCP access require v6 and never migrate; older binaries reject v6.
 
 After explicit user approval of the identities, confirm the existing repository when binding:
 
@@ -213,7 +224,7 @@ Path priority:
 
 Example isolated state: `tools-programmer --db /private/directory/history.db project list`. Relative file paths are accepted, SQLite URI/DSN input is not interpreted. Use an application-owned **0700** directory; the database is created **0600**. Existing public files/directories and immediate symlink targets are refused, not silently chmodded. Use trusted local filesystems and ancestors; this is not a defense against a compromised local account or hand-edited database.
 
-Schema version 5 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v5 state**. The first two open read-only; MCP opens existing state read-write solely to support local issue registration and opt-in project registration, without creating or migrating it. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
+Schema version 6 uses `PRAGMA user_version`, foreign keys, a 5-second busy timeout and `synchronous=FULL`. Initialization and additive migration are serialized with `BEGIN IMMEDIATE`; a newer schema fails without resetting data. Opening state may initialize/migrate the database even for a local read command, **except `project check`, `issue summary` and `mcp serve`, which require existing v6 state**. The first two open read-only; MCP opens existing state read-write solely to support local issue registration and opt-in project registration, without creating or migrating it. Existing review/approval tables remain separate from issue histories and normalized activity events. The default SQLite rollback journal is used, not WAL. Database, journal/WAL/SHM and build outputs are ignored by Git. Remote review bodies are transient and never persisted; only the generated operation marker can be reconstructed locally.
 
 **Backup:** stop all processes accessing the database, then copy the closed database file into a private directory with mode 0600. Do not copy a live file without SQLite's backup API, or remove a hot journal/WAL. Restoring an old backup loses newer intent history; do not apply its old plans as if it were current. Inspect live remote state and resolve discrepancies first. Never delete state to bypass an unknown action.
 

@@ -36,6 +36,7 @@ mcp serve       [--enable-project-registration] [--enable-issue-estimates] [--en
 mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
 project bind    --project NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL
+project rebind-checkout --project NAME --path DIR (absolute target; preserves history)
 project origin  --project NAME --repo [HOST/]OWNER/REPO --origin-url URL (explicit association; never changes Git origin)
 project check   --project NAME (read-only effective Git author/committer in current checkout)
 project list
@@ -211,6 +212,9 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		f.StringVar(&repo, "repo", "", "confirm registered repository")
 	case "project check":
 		f.StringVar(&project, "project", "", "registered project")
+	case "project rebind-checkout":
+		f.StringVar(&project, "project", "", "registered project")
+		f.StringVar(&path, "path", "", "absolute checkout target")
 	case "pr sync", "approval plan":
 		f.StringVar(&project, "project", "", "registered project")
 		f.StringVar(&prs, "prs", "", "explicit comma-separated PRs")
@@ -301,6 +305,18 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		p, err = db.Project(project)
 		if err == nil {
 			data, err = gitidentity.Check(ctx, p)
+		}
+	case "project rebind-checkout":
+		var p core.Project
+		p, err = db.Project(project)
+		if err == nil {
+			validated := p
+			validated.Path = ""
+			var check gitidentity.Result
+			check, err = gitidentity.CheckAt(ctx, validated, path)
+			if err == nil {
+				data, err = db.RebindCheckout(ctx, p, check.Checkout)
+			}
 		}
 	case "project list":
 		data, err = db.Projects()

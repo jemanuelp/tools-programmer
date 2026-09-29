@@ -9,7 +9,7 @@ import (
 func TestV3URLMigrationPreservesIssueActivity(t *testing.T) {
 	s, path := openTest(t)
 	// Recreate the historical v3 shape in isolated test state, with its guards.
-	if _, err := s.DB.Exec("ALTER TABLE issues DROP COLUMN url; PRAGMA user_version=3;"); err != nil {
+	if _, err := s.DB.Exec("DROP TABLE checkout_rebindings; ALTER TABLE issues DROP COLUMN url; PRAGMA user_version=3;"); err != nil {
 		t.Fatal(err)
 	}
 	register(t, s, "one")
