@@ -20,7 +20,7 @@ func TestSetProjectOriginPreservesBindingAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Recreate the preceding schema without touching any historical rows.
-	if _, err := s.DB.Exec("ALTER TABLE projects DROP COLUMN origin_url; PRAGMA user_version=4;"); err != nil {
+	if _, err := s.DB.Exec("DROP TABLE checkout_rebindings; ALTER TABLE projects DROP COLUMN origin_url; PRAGMA user_version=4;"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

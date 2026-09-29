@@ -32,9 +32,14 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 }
 
 func run(ctx context.Context, args ...string) (string, error) {
+	return runAt(ctx, "", args...)
+}
+
+func runAt(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
 	cmd.WaitDelay = time.Second
 	var out, stderr boundedOutput
 	cmd.Stdout, cmd.Stderr = &out, &stderr
@@ -50,6 +55,19 @@ func remoteRepo(raw string) (string, error) {
 }
 
 func Check(ctx context.Context, p core.Project) (Result, error) {
+	return checkAt(ctx, p, "")
+}
+
+// CheckAt inspects an explicit target using the same identity and origin policy as Check.
+// The caller supplies a pathless copy when validating a replacement checkout.
+func CheckAt(ctx context.Context, p core.Project, dir string) (Result, error) {
+	if !filepath.IsAbs(dir) {
+		return Result{Project: p.Name}, core.Fail("invalid_input", "checkout path must be absolute")
+	}
+	return checkAt(ctx, p, dir)
+}
+
+func checkAt(ctx context.Context, p core.Project, dir string) (Result, error) {
 	r := Result{Project: p.Name}
 	if err := p.ValidateIdentity(); err != nil {
 		return r, err
@@ -59,7 +77,7 @@ func Check(ctx context.Context, p core.Project) (Result, error) {
 			return r, core.Fail("checkout_mismatch", "Git repository redirection environment is unsupported for identity checks")
 		}
 	}
-	root, err := run(ctx, "rev-parse", "--show-toplevel")
+	root, err := runAt(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return r, err
 	}
@@ -74,7 +92,7 @@ func Check(ctx context.Context, p core.Project) (Result, error) {
 			return r, core.Fail("checkout_mismatch", "current checkout does not match registered path")
 		}
 	}
-	raw, err := run(ctx, "config", "--local", "--get-all", "remote.origin.url")
+	raw, err := runAt(ctx, dir, "config", "--local", "--get-all", "remote.origin.url")
 	if err != nil {
 		return r, err
 	}
@@ -86,7 +104,7 @@ func Check(ctx context.Context, p core.Project) (Result, error) {
 		variable string
 		target   *string
 	}{{"GIT_AUTHOR_IDENT", &r.Author}, {"GIT_COMMITTER_IDENT", &r.Committer}} {
-		value, err := run(ctx, "var", item.variable)
+		value, err := runAt(ctx, dir, "var", item.variable)
 		if err != nil {
 			return r, err
 		}

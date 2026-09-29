@@ -126,8 +126,8 @@ func open(path string, readOnly, initialize bool) (*Store, error) {
 	if !initialize {
 		var version int
 		err = db.QueryRow("PRAGMA user_version").Scan(&version)
-		if err == nil && version != 5 {
-			err = core.Fail("identity_unbound", "access requires existing schema v5 state; migrate and explicitly bind legacy projects first")
+		if err == nil && version != 6 {
+			err = core.Fail("identity_unbound", "access requires existing schema v6 state; migrate and explicitly bind legacy projects first")
 		}
 	} else {
 		err = s.migrate()
@@ -151,7 +151,7 @@ func (s *Store) migrate() error {
 	if err := s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 5 {
+	if version > 6 {
 		return core.Fail("newer_schema", "database schema is newer than this binary; upgrade the binary")
 	}
 	if version == 0 {
@@ -180,6 +180,14 @@ PRAGMA user_version=2;`); err != nil {
 	}
 	if version < 5 {
 		if _, err := s.DB.Exec("ALTER TABLE projects ADD COLUMN origin_url TEXT NOT NULL DEFAULT ''; UPDATE projects SET origin_url='https://' || repo; PRAGMA user_version=5;"); err != nil {
+			return err
+		}
+	}
+	if version < 6 {
+		if _, err := s.DB.Exec(`CREATE TABLE checkout_rebindings(id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL REFERENCES projects(name), path_before TEXT NOT NULL, path_after TEXT NOT NULL, recorded_at TEXT NOT NULL, result TEXT NOT NULL CHECK(result='success'));
+CREATE TRIGGER checkout_rebindings_no_update BEFORE UPDATE ON checkout_rebindings BEGIN SELECT RAISE(ABORT, 'checkout rebindings are append-only'); END;
+CREATE TRIGGER checkout_rebindings_no_delete BEFORE DELETE ON checkout_rebindings BEGIN SELECT RAISE(ABORT, 'checkout rebindings are append-only'); END;
+PRAGMA user_version=6;`); err != nil {
 			return err
 		}
 	}
