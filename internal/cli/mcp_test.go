@@ -278,7 +278,7 @@ func TestBinaryMCPInstalledCommandAndLifecycle(t *testing.T) {
 		t.Fatal("no initialization")
 	}
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 10 {
+	if err != nil || len(list.Tools) != 11 {
 		t.Fatalf("%+v %v", list, err)
 	}
 	registration := map[string]any{"name": "opt-in", "repo": "Example/Opt-In", "github_login": "Explicit", "git_name": "Explicit", "git_email": "explicit@example.com"}

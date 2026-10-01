@@ -91,6 +91,7 @@ func New(db *store.Store, options ...Options) *mcp.Server {
 		return (&service.Service{Store: db.WithReadContext(ctx)}).Show(in.ID)
 	})
 	addActivityTools(s, db)
+	addGitIdentityContinuation(s, db)
 	addIssueRegistration(s, db)
 	if len(options) > 0 && options[0].EnableIssueEstimates {
 		addIssueEstimateProposal(s, db)
