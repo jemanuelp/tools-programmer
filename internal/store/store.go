@@ -126,8 +126,8 @@ func open(path string, readOnly, initialize bool) (*Store, error) {
 	if !initialize {
 		var version int
 		err = db.QueryRow("PRAGMA user_version").Scan(&version)
-		if err == nil && version != 6 {
-			err = core.Fail("identity_unbound", "access requires existing schema v6 state; migrate and explicitly bind legacy projects first")
+		if err == nil && version != 7 {
+			err = core.Fail("identity_unbound", "access requires existing schema v7 state; migrate and explicitly bind legacy projects first")
 		}
 	} else {
 		err = s.migrate()
@@ -151,7 +151,7 @@ func (s *Store) migrate() error {
 	if err := s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 6 {
+	if version > 7 {
 		return core.Fail("newer_schema", "database schema is newer than this binary; upgrade the binary")
 	}
 	if version == 0 {
@@ -188,6 +188,15 @@ PRAGMA user_version=2;`); err != nil {
 CREATE TRIGGER checkout_rebindings_no_update BEFORE UPDATE ON checkout_rebindings BEGIN SELECT RAISE(ABORT, 'checkout rebindings are append-only'); END;
 CREATE TRIGGER checkout_rebindings_no_delete BEFORE DELETE ON checkout_rebindings BEGIN SELECT RAISE(ABORT, 'checkout rebindings are append-only'); END;
 PRAGMA user_version=6;`); err != nil {
+			return err
+		}
+	}
+	if version < 7 {
+		if _, err := s.DB.Exec(`CREATE TABLE identity_changes(id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL REFERENCES projects(name), name_before TEXT NOT NULL, email_before TEXT NOT NULL, name_after TEXT NOT NULL, email_after TEXT NOT NULL, authorization TEXT NOT NULL CHECK(authorization='native_cli_explicit_flag'), recorded_at TEXT NOT NULL, result TEXT NOT NULL CHECK(result='success'));
+CREATE INDEX identity_changes_project ON identity_changes(project);
+CREATE TRIGGER identity_changes_no_update BEFORE UPDATE ON identity_changes BEGIN SELECT RAISE(ABORT, 'identity changes are append-only'); END;
+CREATE TRIGGER identity_changes_no_delete BEFORE DELETE ON identity_changes BEGIN SELECT RAISE(ABORT, 'identity changes are append-only'); END;
+PRAGMA user_version=7;`); err != nil {
 			return err
 		}
 	}
@@ -261,14 +270,14 @@ func (s *Store) AddProjectContext(ctx context.Context, p core.Project) (core.Pro
 }
 func (s *Store) Project(name string) (core.Project, error) {
 	var p core.Project
-	err := s.DB.QueryRowContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url FROM projects WHERE name=?", name).Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL)
+	err := s.DB.QueryRowContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url,(SELECT count(*) FROM identity_changes WHERE project=projects.name) FROM projects WHERE name=?", name).Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL, &p.IdentityRevision)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = core.Fail("not_found", "project not registered")
 	}
 	return p, err
 }
 func (s *Store) Projects() ([]core.Project, error) {
-	rows, err := s.DB.QueryContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url FROM projects ORDER BY name")
+	rows, err := s.DB.QueryContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url,(SELECT count(*) FROM identity_changes WHERE project=projects.name) FROM projects ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +285,7 @@ func (s *Store) Projects() ([]core.Project, error) {
 	out := []core.Project{}
 	for rows.Next() {
 		var p core.Project
-		if err = rows.Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL); err != nil {
+		if err = rows.Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL, &p.IdentityRevision); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -408,12 +417,23 @@ func (s *Store) Plan(id string) (core.Plan, error) {
 
 // Claim commits durable intent before any network write. The unique key spans plans.
 func (s *Store) Claim(o core.Operation) error {
+	plan, err := s.Plan(o.PlanID)
+	if err != nil {
+		return err
+	}
+	p := plan.Project
+	if p.Name != o.Project || p.CheckActor(o.Actor) != nil {
+		return core.Fail("claim_blocked", "operation does not match its bound plan; no write was sent")
+	}
+	args := []any{o.ID, o.PlanID, o.Project, o.PR, o.SHA, strings.ToLower(o.Actor), o.CreatedAt, o.CreatedAt}
+	args = append(args, projectPolicyArgs(p)...)
+	args = append(args, o.Project, o.PR, o.SHA)
 	res, err := s.DB.Exec(`INSERT INTO operations(id,plan_id,project,pr,sha,actor,state,created_at,updated_at)
 		SELECT ?,?,?,?,?,?,'intent',?,?
 		WHERE NOT EXISTS(SELECT 1 FROM operations WHERE state!='confirmed')
-		AND EXISTS(SELECT 1 FROM projects WHERE name=? AND expected_github!='' AND lower(expected_github)=lower(?) AND git_name!='' AND git_email!='')
+		AND EXISTS(SELECT 1 FROM projects WHERE `+projectPolicyPredicate+`)
 		AND (SELECT outcome FROM local_reviews WHERE project=? AND pr=? AND sha=? ORDER BY id DESC LIMIT 1)='approved'`,
-		o.ID, o.PlanID, o.Project, o.PR, o.SHA, strings.ToLower(o.Actor), o.CreatedAt, o.CreatedAt, o.Project, o.Actor, o.Project, o.PR, o.SHA)
+		args...)
 	if err != nil {
 		return core.Fail("claim_blocked", "operation already claimed or storage unavailable; inspect approval show and reconcile; no retry was sent")
 	}
@@ -422,7 +442,7 @@ func (s *Store) Claim(o core.Operation) error {
 		return err
 	}
 	if n != 1 {
-		return core.Fail("claim_blocked", "another intent is unresolved or the local verdict changed; no write was sent")
+		return core.Fail("claim_blocked", "plan policy is stale, another intent is unresolved, or the local verdict changed; no write was sent")
 	}
 	return nil
 }

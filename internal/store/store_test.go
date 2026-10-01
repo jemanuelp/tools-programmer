@@ -144,7 +144,7 @@ func TestPersistenceIsolationAndStaleness(t *testing.T) {
 }
 func TestSQLitePragmasSchemaAndPrivateStorage(t *testing.T) {
 	s, path := openTest(t)
-	for query, want := range map[string]int{"PRAGMA foreign_keys": 1, "PRAGMA busy_timeout": 5000, "PRAGMA synchronous": 2, "PRAGMA user_version": 6} {
+	for query, want := range map[string]int{"PRAGMA foreign_keys": 1, "PRAGMA busy_timeout": 5000, "PRAGMA synchronous": 2, "PRAGMA user_version": 7} {
 		var got int
 		if err := s.DB.QueryRow(query).Scan(&got); err != nil || got != want {
 			t.Fatalf("%s: %d %v", query, got, err)
@@ -208,7 +208,11 @@ func TestRejectUnsafeStorageAndInput(t *testing.T) {
 func TestAtomicClaimAcrossPlansAndUnknownGlobalGate(t *testing.T) {
 	s, _ := openTest(t)
 	register(t, s, "one")
-	p := core.Plan{ID: "plan", Project: core.Project{Name: "one"}}
+	project, err := s.Project("one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := core.Plan{ID: "plan", Project: project}
 	if err := s.SavePlan(p); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +275,11 @@ func TestClaimRechecksRevokedVerdictAtomically(t *testing.T) {
 	register(t, s, "one")
 	sha := strings.Repeat("a", 40)
 	record(t, s, "one", sha, "approved")
-	if err := s.SavePlan(core.Plan{ID: "plan", Project: core.Project{Name: "one"}}); err != nil {
+	project, err := s.Project("one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SavePlan(core.Plan{ID: "plan", Project: project}); err != nil {
 		t.Fatal(err)
 	}
 	record(t, s, "one", sha, "changes_requested")
