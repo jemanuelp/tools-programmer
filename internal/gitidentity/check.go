@@ -15,6 +15,7 @@ import (
 )
 
 type Result struct {
+	Origin    string `json:"-"` // Private evidence for detecting changes between validations.
 	Project   string `json:"project"`
 	Checkout  string `json:"checkout"`
 	Author    string `json:"author"`
@@ -99,6 +100,7 @@ func checkAt(ctx context.Context, p core.Project, dir string) (Result, error) {
 	if !p.MatchesOrigin(raw) {
 		return r, core.Fail("checkout_mismatch", "checkout origin does not match registered repository")
 	}
+	r.Origin = raw
 	ident := regexp.MustCompile(`^(.+) <([^<>]+)> [0-9]+ [+-][0-9]{4}$`)
 	for _, item := range []struct {
 		variable string

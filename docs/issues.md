@@ -44,7 +44,7 @@ tools-programmer issue add --project demo --number 12 --url https://github.com/e
 - Legacy CLI registration may omit `--url`; existing and new missing URLs consistently read as `"url":""`. No URL is inferred. `issue_summary` returns the stored `id`, `project`, `repository`, `number` and `url` under `data.issue`.
 - Duplicate `(project, number)` or conflicting stable remote identity returns `issue_conflict`, including identical retries. Neither CLI nor MCP inserts a duplicate, enriches a missing URL, or overwrites history. Unknown projects, invalid URLs and identity mismatches insert nothing.
 - Registration asserts an existing issue's identity locally; it does **not verify remote existence**. It never calls GitHub, creates a remote issue, assigns a session, confirms estimates, or changes local/remote approval state. Registration is not work authorization.
-- MCP requires an already migrated private schema v6 database and never initializes or migrates it. The additive migrations preserve issue IDs and activity references.
+- MCP requires an already migrated private schema v7 database and never initializes or migrates it. The additive migrations preserve issue IDs and activity references.
 
 ### Estimation and outcomes
 
