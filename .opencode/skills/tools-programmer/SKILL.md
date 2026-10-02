@@ -24,6 +24,7 @@ Use for direct issue implementation/tracking, before commits, identity checks, t
 - Keep credentials and raw sensitive output out of summaries/evidence.
 - Before an authorized commit, run `tools-programmer project check --project NAME` in the intended checkout with the same environment. Require matching effective author and committer; stop on any failure. Verify preserved/overridden commit authors separately.
 - Use only user-approved expected identities. Bind legacy projects explicitly; never infer an identity, replace state or change Git configuration to pass a guard. Direct Git commits bypass the advisory check; do not install hooks or global enforcement without authorization.
+- For a deliberate existing-project Git name/email transition, obtain explicit consent for the exact tuple and use native `project update-git-identity` in the committing environment. MCP only returns a read-only native continuation; its declaration/server identity cannot certify consent or checkout evidence. Rebinding a checkout remains separately authorized; the ordinary pre-commit check is unchanged. Real changes permanently stale old plans, including A -> B -> A; validated same-tuple requests do not.
 
 ## Decision Gates
 
