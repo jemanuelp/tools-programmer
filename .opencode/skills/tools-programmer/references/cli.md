@@ -73,7 +73,29 @@ Before an authorized commit, run `tools-programmer project check --project demo`
 
 To explicitly move an existing registered checkout, run `tools-programmer project rebind-checkout --project demo --path /absolute/checkout`. The target may be a symlink, subdirectory or linked non-bare worktree; its canonical Git root is stored. The command verifies local origin and effective author/committer at the target, without Git writes, gh or changing configuration. It preserves history, appends one local audit row on a changed path (none for a no-op), and fails if project policy changes during validation. Old plans are immutable and require replanning; unresolved intents remain eligible for read-only reconciliation. This does not replace the pre-commit check in the intended checkout.
 
-Legacy projects remain unbound after additive migration. With user-approved values, bind once using `tools-programmer project bind --project demo --repo example/demo --github-login expected-login --git-name 'Expected User' --git-email expected@example.com`. Existing bindings cannot be replaced; unresolved intents must match the expected login. Old plans cannot be applied after binding, but their unresolved operations can be reconciled under that explicit binding. Keep all history and create new plans for new approvals.
+Legacy projects remain unbound after additive migration. With user-approved values, bind once using `tools-programmer project bind --project demo --repo example/demo --github-login expected-login --git-name 'Expected User' --git-email expected@example.com`. `bind` cannot replace an existing binding; deliberate Git name/email updates use the separate native operation below. Unresolved intents must match the expected login. Old plans cannot be applied after binding, but their unresolved operations can be reconciled under that explicit binding. Keep all history and create new plans for new approvals.
+
+### Deliberate expected Git name/email update
+
+After explicit user authorization for the exact existing project and new tuple, run in the actual committing environment:
+
+```sh
+tools-programmer project update-git-identity --project demo \
+  --git-name 'New User' --git-email new@example.com --path /absolute/checkout --authorized
+# Separately authorize a path move if needed, then check from that checkout:
+tools-programmer project rebind-checkout --project demo --path /absolute/checkout
+tools-programmer project check --project demo
+```
+
+The native operation checks the actual origin and both effective author/committer, including environment overrides, against the proposed tuple twice. Revalidation immediately precedes an atomic full-policy comparison and tuple/audit write; stale policy or checkout evidence rejects. Missing consent, invalid tuples, wrong origin or either identity mismatch cannot change policy/change history. Audit failure rolls back the tuple change. Ordinary writable opening can additively migrate state even if validation later fails; current read-only checks/MCP require schema v7.
+
+`changed` preserves project identity, unique origin, repository/host, GitHub login, other policy, checkout mapping and all history. Exactly one append-only private `identity_changes` row records prior/new tuple, actual `native_cli_explicit_flag` provenance, UTC time and successful validation outcome. No human actor is invented. Receipt/error output omits raw checkout and identity diagnostics. `no_op` still validates and returns an auditable receipt ID/time/provenance/validation/revision with no change audit ID; retain it if needed. No-op receipts are not persisted, and no policy/history rewrite or duplicate change entry occurs.
+
+Exactly one tuple is active; deliberate A -> B -> A repetitions are allowed. Actual changes advance the durable revision and permanently stale immutable prior plans; returning to A never revives them. A validated same-tuple request does not advance the revision or invalidate current plans. Migrated bound plans default to revision zero and remain valid only while full policy stays unchanged and no identity change occurs. Unbound plans still fail closed. Claim atomically checks full policy/revision: stale plans cannot acquire new remote-write intents after an update commits. Already-acquired intents, sent/unknown requests and confirmations remain intact and read-only reconcilable under the unchanged repository/login; ambiguity still blocks new writes. No transaction spans network I/O.
+
+MCP `project_update_git_identity {"project":"demo","git_name":"New User","git_email":"new@example.com","path":"/absolute/checkout","authorized":true}` is read-only. It rejects missing consent/invalid fields; an authorized well-formed declaration returns `native_validation_required` with the native command, never mutation. A declaration is not proof of human consent. The server never invokes Git or treats its configuration as the actual committing environment. This operation never changes Git/global configuration or accounts, never implicitly rebinds a path, and never replaces the ordinary pre-commit check.
+
+### Plan and explicitly apply
 
 ```sh
 tools-programmer approval plan --project demo --prs 8,9

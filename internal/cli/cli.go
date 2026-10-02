@@ -37,6 +37,7 @@ mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
 project bind    --project NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL
 project rebind-checkout --project NAME --path DIR (absolute target; preserves history)
+project update-git-identity --project NAME --git-name NAME --git-email EMAIL --path DIR --authorized
 project origin  --project NAME --repo [HOST/]OWNER/REPO --origin-url URL (explicit association; never changes Git origin)
 project check   --project NAME (read-only effective Git author/committer in current checkout)
 project list
@@ -60,6 +61,13 @@ MCP installation pins absolute executable/database paths; restart OpenCode after
 Local commands never invoke gh.
 Planning is read-only on GitHub. Only explicit approval apply may publish APPROVE reviews.
 Unknown writes require read-only reconciliation; never retry them blindly.
+Identity updates validate the actual target origin and effective author AND committer twice.
+Changed tuples append private local audit history and permanently stale prior plans; validated
+same-tuple requests return a no_op receipt without rewriting policy/history. Raw Git diagnostics
+are suppressed. --authorized records explicit native consent provenance, not a human actor.
+Invalid tuples, wrong origin, either identity mismatch or stale validation reject without
+policy/change-audit mutation. Atomic audit failures roll back the tuple change.
+Checkout rebinding remains separate; always run project check before an authorized commit.
 `
 
 type envelope struct {
@@ -190,11 +198,17 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 	var name, repo, path, project, prs, sha, reviewer, method, outcome, summary, evidence, id string
 	var pr int
 	var allowNoChecks bool
+	var authorized bool
 	var login, gitName, gitEmail, originURL string
 	if command == "project add" || command == "project bind" {
 		f.StringVar(&login, "github-login", "", "explicit expected GitHub login")
 		f.StringVar(&gitName, "git-name", "", "expected Git author and committer name")
 		f.StringVar(&gitEmail, "git-email", "", "expected Git author and committer email")
+	}
+	if command == "project update-git-identity" {
+		f.StringVar(&gitName, "git-name", "", "explicit newly approved Git name")
+		f.StringVar(&gitEmail, "git-email", "", "explicit newly approved Git email")
+		f.BoolVar(&authorized, "authorized", false, "explicit consent for this project and tuple; not inferred")
 	}
 	switch command {
 	case "project add":
@@ -212,7 +226,7 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		f.StringVar(&repo, "repo", "", "confirm registered repository")
 	case "project check":
 		f.StringVar(&project, "project", "", "registered project")
-	case "project rebind-checkout":
+	case "project rebind-checkout", "project update-git-identity":
 		f.StringVar(&project, "project", "", "registered project")
 		f.StringVar(&path, "path", "", "absolute checkout target")
 	case "pr sync", "approval plan":
@@ -265,6 +279,9 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 	if command == "review list" && pr < 0 {
 		return emit(nil, core.Fail("invalid_input", "invalid PR filter"))
 	}
+	if command == "project update-git-identity" && !authorized {
+		return emit(nil, core.Fail("authorization_required", "obtain explicit authorization for this project and tuple, then pass --authorized"))
+	}
 	if *dbPath == "" {
 		var err error
 		*dbPath, err = store.DefaultPath()
@@ -300,6 +317,8 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		data, err = db.BindProject(project, repo, login, gitName, gitEmail)
 	case "project origin":
 		data, err = db.SetProjectOrigin(project, repo, originURL)
+	case "project update-git-identity":
+		data, err = svc.UpdateGitIdentity(ctx, project, gitName, gitEmail, path, authorized)
 	case "project check":
 		var p core.Project
 		p, err = db.Project(project)
