@@ -43,15 +43,16 @@ func CanonicalRepo(input string) (string, error) {
 }
 
 type Project struct {
-	Name           string `json:"name"`
-	Repo           string `json:"repository"`
-	OriginURL      string `json:"origin_url"`
-	Path           string `json:"local_path,omitempty"`
-	AllowNoChecks  bool   `json:"allow_no_checks"`
-	CreatedAt      string `json:"created_at"`
-	ExpectedGitHub string `json:"expected_github_login"`
-	GitName        string `json:"expected_git_name"`
-	GitEmail       string `json:"expected_git_email"`
+	Name             string `json:"name"`
+	Repo             string `json:"repository"`
+	OriginURL        string `json:"origin_url"`
+	Path             string `json:"local_path,omitempty"`
+	AllowNoChecks    bool   `json:"allow_no_checks"`
+	CreatedAt        string `json:"created_at"`
+	ExpectedGitHub   string `json:"expected_github_login"`
+	GitName          string `json:"expected_git_name"`
+	GitEmail         string `json:"expected_git_email"`
+	IdentityRevision int64  `json:"identity_revision"`
 }
 
 func (p Project) ValidateIdentity() error {

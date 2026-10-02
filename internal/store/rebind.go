@@ -37,8 +37,7 @@ func (s *Store) RebindCheckout(ctx context.Context, observed core.Project, root 
 		return observed, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE projects SET path=? WHERE name=? AND path=? AND repo=? AND origin_url=? AND expected_github=? AND git_name=? AND git_email=? AND allow_no_checks=? AND created_at=?`,
-		stored, observed.Name, observed.Path, observed.Repo, observed.OriginURL, observed.ExpectedGitHub, observed.GitName, observed.GitEmail, observed.AllowNoChecks, observed.CreatedAt)
+	result, err := tx.ExecContext(ctx, "UPDATE projects SET path=? WHERE "+projectPolicyPredicate, append([]any{stored}, projectPolicyArgs(observed)...)...)
 	if err != nil {
 		return observed, err
 	}

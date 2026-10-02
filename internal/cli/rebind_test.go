@@ -50,7 +50,7 @@ func TestRebindCheckoutCLI(t *testing.T) {
 	if err := s.SavePlan(core.Plan{ID: "prior-plan", Project: before}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB.Exec("DROP TABLE checkout_rebindings; PRAGMA user_version=5"); err != nil {
+	if _, err := s.DB.Exec("DROP TABLE identity_changes; DROP TABLE checkout_rebindings; PRAGMA user_version=5"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
