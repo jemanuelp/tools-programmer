@@ -99,7 +99,7 @@ INSERT INTO projects VALUES('legacy','example/legacy','',0,'2026-01-01','reviewe
 }
 
 func TestMCPNeverInitializesOrMigrates(t *testing.T) {
-	for _, kind := range []string{"missing-parent", "missing-file", "v1", "future", "corrupt", "v2", "current-eof"} {
+	for _, kind := range []string{"missing-parent", "missing-file", "v1", "stored-v7", "future", "corrupt", "v2", "current-eof"} {
 		t.Run(kind, func(t *testing.T) {
 			home := mcpHome(t)
 			path := filepath.Join(home, "private", "history.db")
@@ -111,13 +111,17 @@ func TestMCPNeverInitializesOrMigrates(t *testing.T) {
 			if kind == "v2" {
 				mcpV2Fixture(t, path)
 			}
-			if kind == "v1" || kind == "future" || kind == "current-eof" {
+			if kind == "v1" || kind == "stored-v7" || kind == "future" || kind == "current-eof" {
 				db, err := store.Open(path)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if kind != "current-eof" {
 					version := "1"
+					if kind == "stored-v7" {
+						// store.Open initializes the current schema; this tests only the version gate.
+						version = "7"
+					}
 					if kind == "future" {
 						version = "99"
 					}
@@ -144,6 +148,12 @@ func TestMCPNeverInitializesOrMigrates(t *testing.T) {
 				}
 			} else if code == 0 || !strings.Contains(stderr.String(), "mcp_storage") {
 				t.Fatalf("accepted invalid state: %d %s", code, &stderr)
+			}
+			if kind == "stored-v7" {
+				const want = "MCP requires an existing private database using the current schema; verify --db, permissions and compatibility. Initialize or migrate separately through the CLI; MCP never creates or migrates state"
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("stale schema guidance: %s", &stderr)
+				}
 			}
 			if stdout.Len() != 0 || strings.Contains(stderr.String(), "SECRET_CORRUPT_DB") {
 				t.Fatal("unsafe output", &stdout, &stderr)

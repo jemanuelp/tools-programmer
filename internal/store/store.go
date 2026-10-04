@@ -20,6 +20,8 @@ type Store struct {
 	readContext context.Context
 }
 
+const schemaVersion = 8
+
 // WithReadContext borrows the same connection pool for cancellable history queries.
 // The returned view must not be closed; the original Store owns the pool.
 func (s *Store) WithReadContext(ctx context.Context) *Store {
@@ -126,8 +128,8 @@ func open(path string, readOnly, initialize bool) (*Store, error) {
 	if !initialize {
 		var version int
 		err = db.QueryRow("PRAGMA user_version").Scan(&version)
-		if err == nil && version != 7 {
-			err = core.Fail("identity_unbound", "access requires existing schema v7 state; migrate and explicitly bind legacy projects first")
+		if err == nil && version != schemaVersion {
+			err = core.Fail("identity_unbound", "access requires current schema state; migrate and explicitly bind legacy projects first")
 		}
 	} else {
 		err = s.migrate()
@@ -151,7 +153,7 @@ func (s *Store) migrate() error {
 	if err := s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 7 {
+	if version > schemaVersion {
 		return core.Fail("newer_schema", "database schema is newer than this binary; upgrade the binary")
 	}
 	if version == 0 {
@@ -197,6 +199,11 @@ CREATE INDEX identity_changes_project ON identity_changes(project);
 CREATE TRIGGER identity_changes_no_update BEFORE UPDATE ON identity_changes BEGIN SELECT RAISE(ABORT, 'identity changes are append-only'); END;
 CREATE TRIGGER identity_changes_no_delete BEFORE DELETE ON identity_changes BEGIN SELECT RAISE(ABORT, 'identity changes are append-only'); END;
 PRAGMA user_version=7;`); err != nil {
+			return err
+		}
+	}
+	if version < schemaVersion {
+		if err := s.migrateReviewTime(); err != nil {
 			return err
 		}
 	}
