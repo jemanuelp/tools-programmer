@@ -27,6 +27,7 @@ Usage: tools-programmer [--db PATH] COMMAND SUBCOMMAND [FLAGS]
 
 issue           add|observe|link|propose|confirm|outcome|summary (use issue summary --help)
 activity record normalized local runtime event on stdin (no raw payloads)
+review-time     record|report (use review-time record --help)
 
 skill sync      opencode (install/update bundled skill; no database or gh)
 integration sync opencode (publish owned plugin bundle and JSONC entry; no dependencies or state)
@@ -139,6 +140,14 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 			return 0
 		}
 		data, err := runSync(*dbPath, command, remaining[2:])
+		return emit(data, err)
+	}
+	if remaining[0] == "review-time" {
+		if len(remaining) == 3 && (remaining[2] == "--help" || remaining[2] == "-h") {
+			fmt.Fprint(out, reviewTimeHelp)
+			return 0
+		}
+		data, err := runReviewTime(ctx, *dbPath, command, remaining[2:])
 		return emit(data, err)
 	}
 	if remaining[0] == "issue" || remaining[0] == "activity" {
