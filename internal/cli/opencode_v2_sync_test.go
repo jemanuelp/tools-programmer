@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,30 @@ func TestOpenCodeV2PublicSetupCandidate(t *testing.T) {
 		}
 		if again, err := os.ReadFile(filepath.Join(root, "opencode.jsonc")); err != nil || !bytes.Equal(again, configured) {
 			t.Fatal("idempotence changed bytes", err)
+		}
+		configPath := filepath.Join(root, "opencode.jsonc")
+		ownedPath := filepath.Join(root, "tools-programmer-integration-v2", data.Digest, "opencode-v2", "plugin.ts")
+		canonical := (&url.URL{Scheme: "file", Path: ownedPath}).String()
+		for _, user := range []*url.Userinfo{url.User("fixture-user"), url.UserPassword("fixture-user", "fixture-password"), url.User("")} {
+			reference := (&url.URL{Scheme: "file", User: user, Path: ownedPath}).String()
+			source := bytes.Replace(configured, []byte(canonical), []byte(reference), 1)
+			if err := os.WriteFile(configPath, source, 0600); err != nil {
+				t.Fatal(err)
+			}
+			code, result = run(args)
+			if code == 0 || !bytes.Contains(result["error"], []byte("integration_drift")) {
+				t.Fatal("userinfo reference was not refused", code, string(result["error"]))
+			}
+			refused := data
+			if err := json.Unmarshal(result["data"], &refused); err != nil || refused.ConfigChanged || len(refused.Updated) != 0 {
+				t.Fatal("refusal reported writes", refused, err)
+			}
+			if after, err := os.ReadFile(configPath); err != nil || !bytes.Equal(after, source) {
+				t.Fatal("refusal changed configuration", err)
+			}
+		}
+		if err := os.WriteFile(configPath, configured, 0600); err != nil {
+			t.Fatal(err)
 		}
 		asset := filepath.Join(root, "tools-programmer-integration-v2", data.Digest, "opencode-v2", "plugin.ts")
 		if err := os.WriteFile(asset, []byte("operator edit"), 0600); err != nil {

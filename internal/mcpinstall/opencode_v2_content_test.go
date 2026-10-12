@@ -97,6 +97,22 @@ func TestOpenCodeV2OwnedReferences(t *testing.T) {
 			t.Fatal("ambiguous owned reference accepted", reference)
 		}
 	}
+	for _, tt := range []struct {
+		name string
+		user *url.Userinfo
+	}{
+		{"username", url.User("fixture-user")},
+		{"password", url.UserPassword("fixture-user", "fixture-password")},
+		{"empty username", url.User("")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reference := (&url.URL{Scheme: "file", User: tt.user, Path: owned}).String()
+			previous, err := openCodeV2OwnedReference(reference, base)
+			if err == nil || previous != "" {
+				t.Fatal("userinfo reference claimed as owned", previous, err)
+			}
+		})
+	}
 	if previous, err := openCodeV2OwnedReference("other-plugin", base); err != nil || previous != "" {
 		t.Fatal("unrelated package claimed", previous, err)
 	}
