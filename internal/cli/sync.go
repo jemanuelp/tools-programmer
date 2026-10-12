@@ -2,7 +2,9 @@ package cli
 
 import (
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 
 	"tools-programmer/internal/core"
 	"tools-programmer/internal/mcpinstall"
@@ -10,9 +12,10 @@ import (
 )
 
 const (
-	syncSkillStep       = "skill sync opencode"
-	syncIntegrationStep = "integration sync opencode"
-	syncMCPInstallStep  = "mcp install opencode"
+	syncOpenCodePreflightStep = "OpenCode version preflight"
+	syncSkillStep             = "skill sync opencode"
+	syncIntegrationStep       = "integration sync opencode"
+	syncMCPInstallStep        = "mcp install opencode"
 )
 
 // SyncResult reports each setup operation, including the result returned by a
@@ -27,12 +30,31 @@ type SyncResult struct {
 
 func runSync(path, command string, args []string) (SyncResult, error) {
 	r := SyncResult{}
-	if command != "sync opencode" || len(args) != 0 {
-		return r, core.Fail("invalid_input", "expected: sync opencode; no additional arguments supported")
+	if command != "sync opencode" {
+		return r, core.Fail("invalid_input", "expected: sync opencode [--opencode-bin PATH]")
+	}
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	opencodeBin := flags.String("opencode-bin", "", "OpenCode executable for version preflight")
+	if err := flags.Parse(args); err != nil || len(flags.Args()) != 0 {
+		return r, core.Fail("invalid_input", "expected: sync opencode [--opencode-bin PATH]; no additional arguments supported")
+	}
+	opencodeBinSet := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "opencode-bin" {
+			opencodeBinSet = true
+		}
+	})
+	if opencodeBinSet && *opencodeBin == "" {
+		return r, core.Fail("invalid_input", "--opencode-bin requires a non-empty executable path")
 	}
 	database, err := selectedDatabase(path)
 	if err != nil {
 		return r, err
+	}
+	if err := preflightOpenCode(*opencodeBin); err != nil {
+		r.FailedStep = syncOpenCodePreflightStep
+		return r, syncFailure(syncOpenCodePreflightStep, err)
 	}
 
 	r.Skill, err = skillsync.Sync()

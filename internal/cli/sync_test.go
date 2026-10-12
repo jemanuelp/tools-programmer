@@ -32,6 +32,7 @@ func isolatedSyncHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("OPENCODE_CONFIG_DIR", "")
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
@@ -39,8 +40,35 @@ func isolatedSyncHome(t *testing.T) string {
 	return home
 }
 
+func writeFakeOpenCode(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "opencode")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func installFakeOpenCode(t *testing.T) string {
+	t.Helper()
+	path := writeFakeOpenCode(t, "printf '1.18.30\\n'\n")
+	t.Setenv("PATH", filepath.Dir(path))
+	return path
+}
+
+func requireNoSyncWrites(t *testing.T, home, database string) {
+	t.Helper()
+	if entries, err := os.ReadDir(home); err != nil || len(entries) != 0 {
+		t.Fatalf("preflight changed HOME: entries=%v err=%v", entries, err)
+	}
+	if _, err := os.Stat(filepath.Dir(database)); !os.IsNotExist(err) {
+		t.Fatalf("preflight created database directory: %v", err)
+	}
+}
+
 func TestSyncOpenCodeOrchestratesInOrderAndIsIdempotent(t *testing.T) {
 	home := isolatedSyncHome(t)
+	installFakeOpenCode(t)
 	database := filepath.Join(home, "state", "history.db")
 
 	first, code, output := runSyncCommand(t, "--db", database, "sync", "opencode")
@@ -77,6 +105,7 @@ func TestSyncOpenCodeOrchestratesInOrderAndIsIdempotent(t *testing.T) {
 
 func TestSyncOpenCodePreservesUnrelatedConfiguration(t *testing.T) {
 	home := isolatedSyncHome(t)
+	installFakeOpenCode(t)
 	configDir := filepath.Join(home, ".config", "opencode")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		t.Fatal(err)
@@ -104,6 +133,7 @@ func TestSyncOpenCodePreservesUnrelatedConfiguration(t *testing.T) {
 
 func TestSyncOpenCodeRetainsEarlierResultsWhenMCPConflicts(t *testing.T) {
 	home := isolatedSyncHome(t)
+	installFakeOpenCode(t)
 	configDir := filepath.Join(home, ".config", "opencode")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		t.Fatal(err)
@@ -130,6 +160,36 @@ func TestSyncOpenCodeRetainsEarlierResultsWhenMCPConflicts(t *testing.T) {
 	if err != nil || !bytes.Contains(updated, []byte(`"command":["custom"]`)) {
 		t.Fatalf("conflicting configuration was changed: %s (%v)", updated, err)
 	}
+}
+
+func TestSyncOpenCodeRejectsMissingHostBeforeWrites(t *testing.T) {
+	home := isolatedSyncHome(t)
+	database := filepath.Join(home, "state", "history.db")
+	response, code, output := runSyncCommand(t, "--db", database, "sync", "opencode")
+	if code == 0 || response.Error == nil || response.Error.Code != "opencode_not_found" {
+		t.Fatalf("expected missing-host preflight error: code=%d output=%s", code, output)
+	}
+	if !strings.Contains(response.Error.Message, "expected version 1.18.30") || !strings.Contains(response.Error.Message, "--opencode-bin PATH") {
+		t.Fatalf("missing-host error is not actionable: %s", response.Error.Message)
+	}
+	if response.Data.FailedStep != "OpenCode version preflight" {
+		t.Fatalf("wrong failed step: %+v", response.Data)
+	}
+	requireNoSyncWrites(t, home, database)
+}
+
+func TestSyncOpenCodeRejectsMismatchedExplicitHostBeforeWrites(t *testing.T) {
+	home := isolatedSyncHome(t)
+	database := filepath.Join(home, "state", "history.db")
+	fake := writeFakeOpenCode(t, "printf '2.0.23\\n'\n")
+	response, code, output := runSyncCommand(t, "--db", database, "sync", "opencode", "--opencode-bin", fake)
+	if code == 0 || response.Error == nil || response.Error.Code != "opencode_version_mismatch" {
+		t.Fatalf("expected version mismatch: code=%d output=%s", code, output)
+	}
+	if !strings.Contains(response.Error.Message, "expected version 1.18.30") || !strings.Contains(response.Error.Message, "detected version 2.0.23") {
+		t.Fatalf("version mismatch is not actionable: %s", response.Error.Message)
+	}
+	requireNoSyncWrites(t, home, database)
 }
 
 func TestSyncOpenCodeValidatesBeforeWrites(t *testing.T) {
@@ -165,7 +225,7 @@ func TestSyncOpenCodeHelpDoesNotWrite(t *testing.T) {
 	if code := Run(context.Background(), []string{"sync", "opencode", "--help"}, &out, forbiddenRunner{t}); code != 0 {
 		t.Fatalf("code=%d output=%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "sync            opencode") {
+	if !strings.Contains(out.String(), "sync            opencode") || !strings.Contains(out.String(), "--opencode-bin PATH") {
 		t.Fatalf("sync help missing: %s", out.String())
 	}
 	if entries, err := os.ReadDir(home); err != nil || len(entries) != 0 {
