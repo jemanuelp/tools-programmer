@@ -31,7 +31,7 @@ activity record normalized local runtime event on stdin (no raw payloads)
 skill sync      opencode (install/update bundled skill; no database or gh)
 integration sync opencode (publish owned plugin bundle and JSONC entry; no dependencies or state)
 integration info (read embedded capability/build/bundle identity; no installation or database)
-sync            opencode (run skill, integration and MCP setup in order; no executable or AGENTS.md changes)
+sync            opencode [--opencode-bin PATH] (require OpenCode 1.18.30; no executable or AGENTS.md changes)
 mcp serve       [--enable-project-registration] [--enable-issue-estimates] [--enable-issue-outcomes] (stdio MCP; existing database)
 mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
