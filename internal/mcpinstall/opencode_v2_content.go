@@ -149,7 +149,7 @@ func openCodeV2OwnedReference(name, base string) (string, error) {
 		return "", nil
 	}
 	candidate := filepath.Dir(filepath.Dir(path))
-	if u.Host != "" || strings.ContainsAny(name, "?#") || filepath.Dir(candidate) != base || !digestPattern.MatchString(filepath.Base(candidate)) || filepath.Base(filepath.Dir(path)) != "opencode-v2" || filepath.Base(path) != "plugin.ts" {
+	if u.User != nil || u.Host != "" || strings.ContainsAny(name, "?#") || filepath.Dir(candidate) != base || !digestPattern.MatchString(filepath.Base(candidate)) || filepath.Base(filepath.Dir(path)) != "opencode-v2" || filepath.Base(path) != "plugin.ts" {
 		return "", integrationDrift()
 	}
 	return candidate, nil
