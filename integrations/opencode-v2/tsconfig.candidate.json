@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": ["bun"]
+  },
+  "include": [
+    "plugin.ts",
+    "runtime.mjs",
+    "runtime.d.mts",
+    "plugin.test.ts",
+    "runtime-cancellation.test.ts"
+  ]
+}
