@@ -381,7 +381,7 @@ database or replacement state is installed by this preflight.
 The Windows probe uses a kill-on-close Job Object and assigns its suspended root
 before resuming it; Linux uses an owned process group. Windows-native regression
 execution is still pending: cross-compilation is not runtime proof. See the
-[manual Windows workflow](docs/windows-probe-workflow.md) for the prepared job.
+[Windows workflow](docs/windows-probe-workflow.md) for the scoped PR job.
 
 `mcp install opencode` uses the resolved absolute path of its own executable (not PATH). It pins the selected database as an absolute `--db` argument, including when selected through `TOOLS_PROGRAMMER_DB` or the default location. Relative paths are resolved at installation time, so future client working directories cannot select another database. Later environment changes do not redirect this registration. Keep the binary at that location; after moving it or changing databases, inspect and update the registration manually.
 

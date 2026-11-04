@@ -1,4 +1,4 @@
-# Manual Windows process-containment check
+# Windows process-containment check
 
 `.github/workflows/windows-probe.yml` prepares a fresh `windows-2025` VM to build
 the CLI and test its native process cleanup with a fake executable. It does not
@@ -17,12 +17,13 @@ Windows versions.
 
 ## Publication and execution are separate
 
-The sole trigger is `workflow_dispatch`; pushes and PRs do not trigger this
-workflow. GitHub requires the workflow on the default branch for dispatch.
-Publish source/workflow only through the repository's normal, authorized review
-process; do not update that branch automatically. Any later hosted execution
-requires separate user authorization and a named source revision. The existing
-laboratory workflow is independent and unchanged.
+PR #67 is authorized to run this check before merge, only from this repository
+and targeting `feat/issue-60-03-sync-cli`. Its opened, synchronize and reopened
+events are limited to workflow, CLI and Go module paths. Other PRs and forks do
+not run the job. Publishing a matching update can start a hosted Windows run.
+The optional `workflow_dispatch` trigger still requires the workflow on the
+default branch. Neither trigger authorizes a merge or a real OpenCode run.
+The existing laboratory workflow is independent and unchanged.
 
 Standard hosted runners are free on public repositories. Private repositories
 use included minutes and can incur charges. The job is capped at 15 minutes,
@@ -32,8 +33,9 @@ three-second and 8192-byte limits remain separate.
 ## Security and evidence
 
 The job uses read-only repository permissions, no persisted checkout credentials,
-and official actions pinned by commit. It checks out the event's exact SHA,
-records source/workflow/runner identity and the selected Go 1.26.x patch, and
+and official actions pinned by commit. It checks out the PR head SHA (or the
+dispatched SHA), verifies that checkout, and records source/event/workflow/runner
+identity and the selected Go 1.26.x patch. It
 explicitly downloads pinned Go dependencies. Module resolution is disabled in
 the fake-host test step with `GOPROXY=off`; setup does require network access.
 

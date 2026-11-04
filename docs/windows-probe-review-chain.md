@@ -9,7 +9,8 @@ Use a feature-branch chain. The first review unit targets this integration
 branch; each later unit targets the immediate preceding unit. The integration
 PR remains draft and no-merge while the chain is under review. No merge or
 manual Windows workflow dispatch is authorized by the publication request.
-Existing pull-request CI may run independently.
+PR #67 additionally has explicit authorization for its scoped Windows fake-host
+job before merge. Existing pull-request CI may run independently.
 
 ## Review units
 
