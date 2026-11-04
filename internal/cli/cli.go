@@ -31,7 +31,8 @@ activity record normalized local runtime event on stdin (no raw payloads)
 skill sync      opencode (install/update bundled skill; no database or gh)
 integration sync opencode (publish owned plugin bundle and JSONC entry; no dependencies or state)
 integration info (read embedded capability/build/bundle identity; no installation or database)
-sync            opencode (run skill, integration and MCP setup in order; no executable or AGENTS.md changes)
+sync            opencode|opencode-v2 [--opencode-bin ABSOLUTE_PATH]
+                (bounded installed-host preflight, then skill/integration/MCP setup; V2 bundle pending #61)
 mcp serve       [--enable-project-registration] [--enable-issue-estimates] [--enable-issue-outcomes] (stdio MCP; existing database)
 mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
@@ -138,7 +139,7 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 			fmt.Fprint(out, help)
 			return 0
 		}
-		data, err := runSync(*dbPath, command, remaining[2:])
+		data, err := runSync(ctx, *dbPath, command, remaining[2:])
 		return emit(data, err)
 	}
 	if remaining[0] == "issue" || remaining[0] == "activity" {

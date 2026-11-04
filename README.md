@@ -333,7 +333,8 @@ Without the flag (or with `=false`), the tool is absent and calls are rejected w
 
 ### Safe OpenCode registration
 
-For the complete setup, `sync opencode` runs `skill sync opencode`,
+For V1 setup, `sync opencode` first verifies an installed OpenCode **1.18.30**,
+then runs `skill sync opencode`,
 `integration sync opencode`, and `mcp install opencode` in that order. It
 resolves and validates the database path before the first write, reports each
 component result, and returns `failed_step` with a nonzero exit status when a
@@ -342,6 +343,40 @@ atomic-write checks, preserves unrelated configuration, and is safe to repeat.
 It does not modify `AGENTS.md`, install dependencies, or install or replace the
 executable. The individual commands remain available when a component needs to
 be repaired separately.
+
+```sh
+tools-programmer sync opencode --opencode-bin /absolute/path/to/opencode-v1
+```
+
+Without `--opencode-bin`, the command resolves `opencode` from PATH; it never
+switches the requested target based on the detected version. An explicit path
+must be absolute. The selected executable is launched directly with `--version`,
+with a mandatory 3-second deadline and 8192-byte stdout cap enforced during
+execution. Stderr is discarded. Missing, failed, timed-out, oversized, ambiguous,
+prerelease or unsupported versions fail before setup writes. The accepted output
+is a single `major.minor.patch` version with optional surrounding whitespace;
+it is not JSON. This identifies the selected executable, not an active server.
+Only invoke a trusted installed executable: its own startup may initialize logs
+or internal directories. The real-host absence of service/session/model activity
+still requires the separately authorized evidence in issue #50.
+
+The composite validates owned skill/bundle/config paths and predictable MCP
+conflicts before writing any component. A native V2 `plugins` or `mcp.servers`
+document is conservatively rejected as a V1 destination. Later I/O failures
+retain completed steps and report `failed_step`; they do not automatically roll
+back a successfully published plugin when MCP later fails. Standalone component
+commands retain their existing contracts and do not require an installed host.
+
+`sync opencode-v2 [--opencode-bin /absolute/path/to/host]` explicitly checks the
+published V2 **2.2.5** candidate, but then fails with `integration_unavailable`
+without setup writes: this binary has no V2 adapter. Issue #61 owns that bundle;
+issues #50/#62 own installed-host evidence and acceptance. This is **not** a
+complete or certified V2 setup. `opencode` and `opencode2` are published aliases,
+not automatic target selectors. `OPENCODE_CONFIG_DIR` changes a global root,
+not all discovered system/project/ancestor configuration. Skills still use their
+existing HOME-based destination; isolated V2 skill/config ownership and both
+sync-order acceptance remain pending those dependencies. No host, dependency,
+database or replacement state is installed by this preflight.
 
 `mcp install opencode` uses the resolved absolute path of its own executable (not PATH). It pins the selected database as an absolute `--db` argument, including when selected through `TOOLS_PROGRAMMER_DB` or the default location. Relative paths are resolved at installation time, so future client working directories cannot select another database. Later environment changes do not redirect this registration. Keep the binary at that location; after moving it or changing databases, inspect and update the registration manually.
 
