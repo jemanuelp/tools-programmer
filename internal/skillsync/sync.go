@@ -26,17 +26,9 @@ type Result struct {
 // Each rename is atomic; the set of files is not a transaction. Callers must use
 // a trusted directory tree without concurrent external changes during sync.
 func Sync() (Result, error) {
-	r := Result{Target: "opencode", Updated: []string{}, Unchanged: []string{}}
-	home, err := os.UserHomeDir()
-	if err != nil || !filepath.IsAbs(home) {
-		return r, fmt.Errorf("HOME must be an absolute directory")
-	}
-	r.Destination = filepath.Join(home, ".config", "opencode", "skills", "tools-programmer")
-	// Check all existing components and owned files before creating anything.
-	for _, name := range files {
-		if err := checkPath(filepath.Join(r.Destination, filepath.FromSlash(name)), false, false); err != nil {
-			return r, err
-		}
+	r, err := prepare()
+	if err != nil {
+		return r, err
 	}
 	for _, name := range files {
 		path := filepath.Join(r.Destination, filepath.FromSlash(name))
@@ -55,6 +47,28 @@ func Sync() (Result, error) {
 			r.Updated = append(r.Updated, name)
 		} else {
 			r.Unchanged = append(r.Unchanged, name)
+		}
+	}
+	return r, nil
+}
+
+// Preflight checks the same owned paths without creating directories or files.
+func Preflight() error {
+	_, err := prepare()
+	return err
+}
+
+func prepare() (Result, error) {
+	r := Result{Target: "opencode", Updated: []string{}, Unchanged: []string{}}
+	home, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(home) {
+		return r, fmt.Errorf("HOME must be an absolute directory")
+	}
+	r.Destination = filepath.Join(home, ".config", "opencode", "skills", "tools-programmer")
+	// Check all existing components and owned files before creating anything.
+	for _, name := range files {
+		if err := checkPath(filepath.Join(r.Destination, filepath.FromSlash(name)), false, false); err != nil {
+			return r, err
 		}
 	}
 	return r, nil
