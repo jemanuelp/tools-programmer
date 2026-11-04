@@ -31,6 +31,16 @@ type IntegrationResult struct {
 // SyncIntegration publishes an immutable bundle before atomically pointing the
 // selected JSONC config at it. It neither opens state nor installs dependencies.
 func SyncIntegration(database string) (IntegrationResult, error) {
+	return setupIntegration(database, false)
+}
+
+// PreflightIntegration validates the owned bundle/configuration without writes.
+func PreflightIntegration(database string) error {
+	_, err := setupIntegration(database, true)
+	return err
+}
+
+func setupIntegration(database string, checkOnly bool) (IntegrationResult, error) {
 	binary, err := os.Executable()
 	if err == nil {
 		binary, err = filepath.EvalSymlinks(binary)
@@ -42,10 +52,14 @@ func SyncIntegration(database string) (IntegrationResult, error) {
 	if err != nil {
 		return IntegrationResult{}, core.Fail("integration_unavailable", "embedded bundle unavailable")
 	}
-	return syncIntegration(database, binary, assets, manifest)
+	return prepareIntegration(database, binary, assets, manifest, checkOnly)
 }
 
 func syncIntegration(database, binary string, assets map[string][]byte, manifest bundle.IntegrationManifest) (IntegrationResult, error) {
+	return prepareIntegration(database, binary, assets, manifest, false)
+}
+
+func prepareIntegration(database, binary string, assets map[string][]byte, manifest bundle.IntegrationManifest, checkOnly bool) (IntegrationResult, error) {
 	r := IntegrationResult{Target: "opencode", Digest: manifest.Digest, Updated: []string{},
 		Next: "Quit and restart OpenCode after verifying its existing plugin dependency. No dependencies, permissions, consent policy, MCP server or global AGENTS were installed. Use tools_programmer_diagnostics after restart."}
 	for _, path := range []string{database, binary} {
@@ -116,6 +130,9 @@ func syncIntegration(database, binary string, assets map[string][]byte, manifest
 			return r, integrationDrift()
 		}
 		before[name] = b
+	}
+	if checkOnly {
+		return r, nil
 	}
 	for _, name := range names {
 		if before[name] != nil {

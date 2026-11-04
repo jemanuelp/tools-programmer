@@ -35,6 +35,16 @@ func Supports(target string) bool { _, ok := adapters[target]; return ok }
 
 // Install never opens the database, launches an agent or installs the executable.
 func Install(target, database string) (Result, error) {
+	return install(target, database, false)
+}
+
+// Preflight validates MCP ownership and configuration without publishing edits.
+func Preflight(database string) error {
+	_, err := install("opencode", database, true)
+	return err
+}
+
+func install(target, database string, checkOnly bool) (Result, error) {
 	r := Result{Target: target, Next: "Quit and restart OpenCode. Installation does not register projects or enforce tool use."}
 	a, ok := adapters[target]
 	if !ok {
@@ -53,10 +63,13 @@ func Install(target, database string) (Result, error) {
 		}
 	}
 	r.Command = []string{binary, "--db", database, "mcp", "serve"}
+	if checkOnly {
+		a = openCode{checkOnly: true}
+	}
 	return a.install(r)
 }
 
-type openCode struct{}
+type openCode struct{ checkOnly bool }
 
 func configDirectory() (string, error) {
 	if dir := os.Getenv("OPENCODE_CONFIG_DIR"); dir != "" {
@@ -79,7 +92,7 @@ func configDirectory() (string, error) {
 	return filepath.Join(base, "opencode"), nil
 }
 
-func (openCode) install(r Result) (Result, error) {
+func (a openCode) install(r Result) (Result, error) {
 	dir, err := configDirectory()
 	if err != nil {
 		return r, err
@@ -116,6 +129,19 @@ func (openCode) install(r Result) (Result, error) {
 	document, err := parseConfig(source)
 	if err != nil {
 		return r, err
+	}
+	if a.checkOnly {
+		native := document.Clone()
+		native.Standardize()
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(native.Pack(), &fields); err != nil {
+			return r, core.Fail("config_invalid", "cannot validate selected configuration")
+		}
+		var mcp map[string]json.RawMessage
+		_ = json.Unmarshal(fields["mcp"], &mcp)
+		if _, exists := fields["plugins"]; exists || mcp["servers"] != nil {
+			return r, core.Fail("config_conflict", "selected destination contains native V2 configuration; select a separate V1 destination and preserve V2 configuration; no setup files were changed")
+		}
 	}
 	entry, _ := json.Marshal(struct {
 		Type    string   `json:"type"`
@@ -162,6 +188,9 @@ func (openCode) install(r Result) (Result, error) {
 	content = append(content, source[at:]...)
 	if _, err := parseConfig(content); err != nil {
 		return r, err
+	}
+	if a.checkOnly {
+		return r, nil
 	}
 	if err := replace(r.Destination, original, content); err != nil {
 		return r, err
