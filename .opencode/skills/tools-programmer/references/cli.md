@@ -48,6 +48,10 @@ it. A V1 composite rejects native V2 `plugins`/`mcp.servers` destinations rather
 than mixing adapters. Dedicated global config roots do not disable other
 discovery layers; target-specific V2 skill/config ownership remains pending.
 
+Windows uses a kill-on-close Job Object with suspended-root assignment before
+execution, without an uncontained fallback; Linux uses a process group. Native
+Windows cleanup tests are pending and cross-compilation is not runtime proof.
+
 Skill sync does not install the plugin. With explicit installation authorization, run `tools-programmer --db /absolute/history.db integration sync opencode`. It publishes the binary's embedded runtime assets and declarations under the selected OpenCode config directory's `tools-programmer-integration/DIGEST/`, then atomically updates only the owned plugin URL in JSON/JSONC. It prefers `opencode.jsonc`, then `opencode.json`; legacy-only `config.json` requires manual resolution. Existing comments, permissions, agents, unrelated plugins and owned tuple policy options remain unchanged. New tuples contain only absolute binary/database options, not standing consent or permission grants.
 
 The command creates missing config/bundle directories, never the database. Owned asset drift, symlink components, conflicting binary/database options, duplicate managed entries and malformed config are refused. It preserves unknown files and previous bundles. File writes are atomic individually; config publication happens only after bundle verification. A failure may leave an inactive partial bundle; rerun after resolving the reported condition. Use trusted directories without concurrent edits. There is no force-overwrite or automatic cleanup. Rebuild the executable to ship updated assets; `integration info` reports its feature protocol, bundle digest and build identity without opening state. Manually configured source-checkout observers are not owned by sync; remove duplicate observer entries only with explicit authorization.

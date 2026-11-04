@@ -378,6 +378,11 @@ existing HOME-based destination; isolated V2 skill/config ownership and both
 sync-order acceptance remain pending those dependencies. No host, dependency,
 database or replacement state is installed by this preflight.
 
+The Windows probe uses a kill-on-close Job Object and assigns its suspended root
+before resuming it; Linux uses an owned process group. Windows-native regression
+execution is still pending: cross-compilation is not runtime proof. See the
+[manual Windows workflow](docs/windows-probe-workflow.md) for the prepared job.
+
 `mcp install opencode` uses the resolved absolute path of its own executable (not PATH). It pins the selected database as an absolute `--db` argument, including when selected through `TOOLS_PROGRAMMER_DB` or the default location. Relative paths are resolved at installation time, so future client working directories cannot select another database. Later environment changes do not redirect this registration. Keep the binary at that location; after moving it or changing databases, inspect and update the registration manually.
 
 The installer prefers existing `opencode.jsonc`, then existing `opencode.json`; if neither exists, it creates `opencode.jsonc` unless a legacy-only `config.json` requires manual configuration. This follows OpenCode's global filename priority. The directory is `OPENCODE_CONFIG_DIR` when set; otherwise `$XDG_CONFIG_HOME/opencode`, falling back to `$HOME/.config/opencode`. Overrides must be absolute. It never opens a database or launches OpenCode/gh. Unsupported targets and malformed command arguments fail before filesystem changes.

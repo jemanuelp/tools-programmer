@@ -1,0 +1,103 @@
+name: Windows fake-host process probe
+
+# Preparation only: publishing and dispatching need separate authorization.
+# No push/PR trigger and no real OpenCode host, models or laboratory execution.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-probe:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CGO_ENABLED: '0'
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out the dispatched source revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Prepare Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Record source and runtime identity
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'issue60-windows-evidence'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          @{
+            source_revision = $env:GITHUB_SHA
+            workflow_revision = $env:GITHUB_WORKFLOW_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            scope = 'Fake-host process containment only; not OpenCode compatibility evidence'
+          } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $evidence 'identity.json')
+          go version | Set-Content -Encoding utf8 (Join-Path $evidence 'go-version.txt')
+          exit $LASTEXITCODE
+
+      - name: Download pinned Go dependencies
+        run: go mod download
+
+      - name: Build the public Windows CLI
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $evidence = Join-Path $env:RUNNER_TEMP 'issue60-windows-evidence'
+          $binary = Join-Path $env:RUNNER_TEMP 'tools-programmer.exe'
+          go build -trimpath -o $binary ./cmd/tools-programmer 1> (Join-Path $evidence 'build.stdout.txt') 2> (Join-Path $evidence 'build.stderr.txt')
+          $buildExit = $LASTEXITCODE
+          Set-Content -Encoding utf8 -Path (Join-Path $evidence 'build-exit.txt') -Value $buildExit
+          Get-Content (Join-Path $evidence 'build.stdout.txt')
+          Get-Content (Join-Path $evidence 'build.stderr.txt')
+          exit $buildExit
+
+      - name: Run native fake-host containment tests
+        timeout-minutes: 5
+        env:
+          GOPROXY: 'off'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $evidence = Join-Path $env:RUNNER_TEMP 'issue60-windows-evidence'
+          $log = Join-Path $evidence 'tests.jsonl'
+          $errors = Join-Path $evidence 'tests.stderr.txt'
+          go test ./internal/cli -run '^TestWindowsSyncProbeContainsAndCleansDescendants$' -count=1 -timeout=3m -json 1> $log 2> $errors
+          $testExit = $LASTEXITCODE
+          Set-Content -Encoding utf8 -Path (Join-Path $evidence 'native-test-exit.txt') -Value $testExit
+          if ($testExit -eq 0) {
+            $events = @(Get-Content $log | ForEach-Object { $_ | ConvertFrom-Json })
+            $expected = 'TestWindowsSyncProbeContainsAndCleansDescendants'
+            $passed = @($events | Where-Object { $_.Action -eq 'pass' -and $_.Test -eq $expected })
+            $skipped = @($events | Where-Object { $_.Action -eq 'skip' -and ($_.Test -eq $expected -or $_.Test -like "$expected/*") })
+            if ($passed.Count -ne 1 -or $skipped.Count -ne 0) {
+              Add-Content -Encoding utf8 -Path $errors -Value 'Required native Windows test did not complete without skips; no-tests-to-run is not acceptance.'
+              $testExit = 1
+            }
+          }
+          Set-Content -Encoding utf8 -Path (Join-Path $evidence 'test-exit.txt') -Value $testExit
+          Get-Content $log
+          Get-Content $errors
+          exit $testExit
+
+      - name: Retain fake-host build and test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: issue60-windows-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/issue60-windows-evidence/
+          retention-days: 7
+          if-no-files-found: warn
