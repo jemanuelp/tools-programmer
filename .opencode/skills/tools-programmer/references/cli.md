@@ -16,9 +16,11 @@ The trusted plugin adapter uses `activity context --runtime ID --session ID --di
 
 ### Setup and recovery
 
-With explicit authorization, `tools-programmer --db /absolute/history.db sync opencode`
+With explicit authorization, `tools-programmer --db /absolute/history.db sync opencode [--opencode-bin /absolute/host]`
 runs `skill sync opencode`, `integration sync opencode`, and `mcp install opencode`
 in that order. It validates the selected database path before the first write,
+requires the selected installed V1 host to report exactly `1.18.30`, preflights
+owned paths and predictable component/config conflicts before writes,
 reports all completed component results, and returns a nonzero status plus
 `failed_step` when a later component fails. The operation is idempotent, keeps
 unrelated configuration, and reuses each component's atomic writes and
@@ -26,6 +28,29 @@ fail-closed conflict checks. It never opens or changes the database, edits
 `AGENTS.md`, installs dependencies, or installs/replaces the executable. Resolve
 the reported conflict and rerun, or use an individual component command when
 repairing setup separately.
+
+The default host is `opencode` resolved from PATH; an explicit host must have an
+absolute path. The direct `--version` probe has a mandatory 3-second deadline and
+8192-byte stdout cap during execution, with stderr discarded. Only a single
+`major.minor.patch` string (surrounding whitespace allowed) is accepted. Invalid,
+missing, failed, timed-out, oversized or unsupported results reject without setup
+writes. Use trusted installed executables: internal startup logs/directories may
+still be initialized. The selected executable version is not an active-service
+version or proof of installed compatibility. Standalone component commands do
+not acquire this new host requirement. Earlier successful steps remain applied
+if a later step fails; no global rollback is promised.
+
+`sync opencode-v2 [--opencode-bin /absolute/host]` recognizes the published host
+candidate `2.2.5`, then rejects with `integration_unavailable` before setup writes
+until #61 supplies the V2 bundle. Do not report V2 setup or runtime compatibility
+as complete. Actual-host probe and coexistence evidence requires #50; #62 consumes
+it. A V1 composite rejects native V2 `plugins`/`mcp.servers` destinations rather
+than mixing adapters. Dedicated global config roots do not disable other
+discovery layers; target-specific V2 skill/config ownership remains pending.
+
+Windows uses a kill-on-close Job Object with suspended-root assignment before
+execution, without an uncontained fallback; Linux uses a process group. Native
+Windows cleanup tests are pending and cross-compilation is not runtime proof.
 
 Skill sync does not install the plugin. With explicit installation authorization, run `tools-programmer --db /absolute/history.db integration sync opencode`. It publishes the binary's embedded runtime assets and declarations under the selected OpenCode config directory's `tools-programmer-integration/DIGEST/`, then atomically updates only the owned plugin URL in JSON/JSONC. It prefers `opencode.jsonc`, then `opencode.json`; legacy-only `config.json` requires manual resolution. Existing comments, permissions, agents, unrelated plugins and owned tuple policy options remain unchanged. New tuples contain only absolute binary/database options, not standing consent or permission grants.
 

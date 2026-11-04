@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"tools-programmer/internal/core"
+	"tools-programmer/internal/mcpinstall"
+	"tools-programmer/internal/skillsync"
 )
 
 type syncResponse struct {
@@ -36,6 +38,7 @@ func isolatedSyncHome(t *testing.T) string {
 	t.Setenv("OPENCODE_CONFIG_DIR", "")
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
 	t.Setenv("TOOLS_PROGRAMMER_DB", "")
+	t.Setenv("PATH", filepath.Dir(fakeSyncHost(t, "echo 1.18.30")))
 	return home
 }
 
@@ -102,7 +105,7 @@ func TestSyncOpenCodePreservesUnrelatedConfiguration(t *testing.T) {
 	}
 }
 
-func TestSyncOpenCodeRetainsEarlierResultsWhenMCPConflicts(t *testing.T) {
+func TestSyncOpenCodeRejectsPredictableMCPConflictBeforeWrites(t *testing.T) {
 	home := isolatedSyncHome(t)
 	configDir := filepath.Join(home, ".config", "opencode")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -117,18 +120,40 @@ func TestSyncOpenCodeRetainsEarlierResultsWhenMCPConflicts(t *testing.T) {
 	if code == 0 || response.Error == nil || response.Error.Code != "config_conflict" {
 		t.Fatalf("expected MCP conflict: code=%d output=%s", code, output)
 	}
-	if response.Data.FailedStep != syncMCPInstallStep {
+	if response.Data.FailedStep != "setup preflight" {
 		t.Fatalf("wrong failed step: %+v", response.Data)
 	}
-	if len(response.Data.Skill.Updated) != 2 || len(response.Data.Integration.Updated) == 0 || !response.Data.Integration.ConfigChanged {
-		t.Fatalf("earlier results were lost: %+v", response.Data)
+	if len(response.Data.Skill.Updated) != 0 || len(response.Data.Integration.Updated) != 0 || response.Data.Integration.ConfigChanged {
+		t.Fatalf("preflight wrote setup components: %+v", response.Data)
 	}
-	if len(response.Data.MCP.Command) != 5 || response.Data.MCP.Changed {
+	if response.Data.MCP.Changed {
 		t.Fatalf("MCP result: %+v", response.Data.MCP)
 	}
 	updated, err := os.ReadFile(filepath.Join(configDir, "opencode.jsonc"))
-	if err != nil || !bytes.Contains(updated, []byte(`"command":["custom"]`)) {
+	if err != nil || string(updated) != config {
 		t.Fatalf("conflicting configuration was changed: %s (%v)", updated, err)
+	}
+	entries, err := os.ReadDir(configDir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("preflight left artifacts: %v (%v)", entries, err)
+	}
+}
+
+func TestSyncRetainsPublishedIntegrationOnLaterMCPFailure(t *testing.T) {
+	home := isolatedSyncHome(t)
+	database := filepath.Join(home, "db", "history.db")
+	r, err := applySync(database, skillsync.Sync, mcpinstall.SyncIntegration, func(database string) (mcpinstall.Result, error) {
+		return mcpinstall.Result{Target: "opencode"}, core.Fail("config_io", "injected MCP publication failure")
+	})
+	if err == nil || r.FailedStep != syncMCPInstallStep || len(r.Skill.Updated) != 2 || !r.Integration.ConfigChanged || r.MCP.Changed {
+		t.Fatalf("partial progress was lost: %+v (%v)", r, err)
+	}
+	content, err := os.ReadFile(r.Integration.Destination)
+	if err != nil || !bytes.Contains(content, []byte("plugin.ts")) || bytes.Contains(content, []byte(`"mcp"`)) {
+		t.Fatalf("successful integration was rolled back or failed MCP was published: %s (%v)", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(r.Integration.Destination), "tools-programmer-integration", r.Integration.Digest, "manifest.json")); err != nil {
+		t.Fatalf("published bundle missing: %v", err)
 	}
 }
 
