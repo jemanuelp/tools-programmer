@@ -45,6 +45,7 @@ func TestWindowsSyncProbeContainsAndCleansDescendants(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			cancelDone := make(chan struct{})
+			canceledAt := make(chan time.Time, 1)
 			if mode == "canceled" {
 				go func() {
 					defer close(cancelDone)
@@ -54,6 +55,7 @@ func TestWindowsSyncProbeContainsAndCleansDescendants(t *testing.T) {
 					defer tick.Stop()
 					for {
 						if _, err := os.Stat(pidFile); err == nil {
+							canceledAt <- time.Now()
 							cancel()
 							return
 						}
@@ -73,10 +75,26 @@ func TestWindowsSyncProbeContainsAndCleansDescendants(t *testing.T) {
 			var output bytes.Buffer
 			start := time.Now()
 			code := Run(ctx, []string{"sync", "opencode", "--opencode-bin", host}, &output, forbiddenRunner{t})
+			finished := time.Now()
 			cancel()
 			<-cancelDone
-			if time.Since(start) > 4*time.Second {
-				t.Fatalf("probe exceeded deadline: %s", time.Since(start))
+			if mode == "canceled" {
+				select {
+				case requested := <-canceledAt:
+					// Both bounds are needed: a late cancellation must not let the
+					// ordinary probe timeout masquerade as prompt cancellation.
+					if elapsed := finished.Sub(start); elapsed >= hostProbeDeadline-500*time.Millisecond {
+						t.Fatalf("canceled probe reached the ordinary timeout window: %s", elapsed)
+					}
+					if latency := finished.Sub(requested); latency < 0 || latency >= time.Second {
+						t.Fatalf("probe did not return promptly after cancellation: %s", latency)
+					}
+				default:
+					t.Fatal("probe was not canceled after observing the started descendant")
+				}
+			}
+			if elapsed := finished.Sub(start); elapsed > 4*time.Second {
+				t.Fatalf("probe exceeded deadline: %s", elapsed)
 			}
 			var response syncResponse
 			if err := json.Unmarshal(output.Bytes(), &response); err != nil {
