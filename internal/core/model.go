@@ -53,6 +53,7 @@ type Project struct {
 	GitName          string `json:"expected_git_name"`
 	GitEmail         string `json:"expected_git_email"`
 	IdentityRevision int64  `json:"identity_revision"`
+	CheckoutRevision int64  `json:"checkout_revision"`
 }
 
 func (p Project) ValidateIdentity() error {

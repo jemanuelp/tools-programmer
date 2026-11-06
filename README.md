@@ -103,7 +103,7 @@ also suppresses automatic dirty detection: prefer checkout builds when possible.
 
 Supply the user-approved GitHub login and Git commit name/email explicitly at registration. Nothing is inferred from the active account, Git configuration, or review declarations. The GitHub login is compared case-insensitively; Git author and committer names/emails must match exactly. Repository and GitHub login bindings cannot be replaced. The single active expected Git tuple can be deliberately updated as described below; no identity allowlist is introduced. The tool never switches accounts or changes Git configuration.
 
-The check opens an existing v7 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
+The check opens an existing v8 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
 
 ```sh
 tools-programmer project check --project demo

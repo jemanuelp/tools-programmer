@@ -19,10 +19,10 @@ type IdentityReceipt struct {
 	IdentityRevision int64  `json:"identity_revision"`
 }
 
-const projectPolicyPredicate = `name=? AND repo=? AND path=? AND allow_no_checks=? AND created_at=? AND expected_github=? AND git_name=? AND git_email=? AND origin_url=? AND (SELECT count(*) FROM identity_changes WHERE project=projects.name)=?`
+const projectPolicyPredicate = `name=? AND repo=? AND path=? AND allow_no_checks=? AND created_at=? AND expected_github=? AND git_name=? AND git_email=? AND origin_url=? AND (SELECT count(*) FROM identity_changes WHERE project=projects.name)=? AND (SELECT count(*) FROM checkout_changes WHERE project=projects.name)=?`
 
 func projectPolicyArgs(p core.Project) []any {
-	return []any{p.Name, p.Repo, p.Path, p.AllowNoChecks, p.CreatedAt, p.ExpectedGitHub, p.GitName, p.GitEmail, p.OriginURL, p.IdentityRevision}
+	return []any{p.Name, p.Repo, p.Path, p.AllowNoChecks, p.CreatedAt, p.ExpectedGitHub, p.GitName, p.GitEmail, p.OriginURL, p.IdentityRevision, p.CheckoutRevision}
 }
 
 // UpdateGitIdentity performs a full-policy CAS and append-only audit atomically.
