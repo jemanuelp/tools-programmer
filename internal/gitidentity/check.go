@@ -69,6 +69,16 @@ func CheckAt(ctx context.Context, p core.Project, dir string) (Result, error) {
 }
 
 func checkAt(ctx context.Context, p core.Project, dir string) (Result, error) {
+	return checkAtWithCheckouts(ctx, p, dir, nil, false)
+}
+
+// CheckAuthorized preserves ordinary check ordering and output while permitting
+// explicitly approved extra roots. It never executes Git at a stored path.
+func CheckAuthorized(ctx context.Context, p core.Project, roots []string) (Result, error) {
+	return checkAtWithCheckouts(ctx, p, "", roots, true)
+}
+
+func checkAtWithCheckouts(ctx context.Context, p core.Project, dir string, roots []string, enforceRevision bool) (Result, error) {
 	r := Result{Project: p.Name}
 	if err := p.ValidateIdentity(); err != nil {
 		return r, err
@@ -87,9 +97,15 @@ func checkAt(ctx context.Context, p core.Project, dir string) (Result, error) {
 		return r, core.Fail("checkout_mismatch", "cannot resolve checkout root")
 	}
 	r.Checkout = root
-	if p.Path != "" {
-		stored, err := filepath.EvalSymlinks(p.Path)
-		if err != nil || !filepath.IsAbs(stored) || stored != root {
+	if p.Path != "" || len(roots) > 0 || (enforceRevision && p.CheckoutRevision > 0) {
+		allowed := false
+		for _, path := range append([]string{p.Path}, roots...) {
+			stored, err := filepath.EvalSymlinks(path)
+			if path != "" && err == nil && filepath.IsAbs(stored) && stored == root {
+				allowed = true
+			}
+		}
+		if !allowed {
 			return r, core.Fail("checkout_mismatch", "current checkout does not match registered path")
 		}
 	}
