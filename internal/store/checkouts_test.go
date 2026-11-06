@@ -152,6 +152,37 @@ func TestCheckoutMigrationPreservesVersion7Project(t *testing.T) {
 	}
 }
 
+func TestCheckoutDiscoveryDeduplicatesProjectAndRejectsAmbiguity(t *testing.T) {
+	s, _ := openTest(t)
+	register(t, s, "one")
+	register(t, s, "two")
+	root := t.TempDir()
+	p, _ := s.Project("one")
+	p, err := s.RebindCheckout(context.Background(), p, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ChangeCheckout(context.Background(), p, child, true, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	activity, err := s.CurrentActivity("opencode", "native", child)
+	if err != nil || activity.ProjectResolution != "matched" || activity.Project != "one" {
+		t.Fatal("same project roots were ambiguous", activity, err)
+	}
+	other, _ := s.Project("two")
+	if _, err := s.ChangeCheckout(context.Background(), other, child, true, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	activity, err = s.CurrentActivity("opencode", "native", child)
+	if err != nil || activity.ProjectResolution != "ambiguous" || activity.Project != "" {
+		t.Fatal("cross-project ambiguity accepted", activity, err)
+	}
+}
+
 func TestCheckoutAuditRollbackAndStaleClaimLeaveDatabaseUnchanged(t *testing.T) {
 	s, path := openTest(t)
 	register(t, s, "one")
@@ -205,5 +236,35 @@ func TestCheckoutAuditRollbackAndStaleClaimLeaveDatabaseUnchanged(t *testing.T) 
 	}
 	if hash() != before {
 		t.Fatal("audit rollback changed database")
+	}
+}
+
+func TestAuthorizedCheckoutSessionsShareAssignments(t *testing.T) {
+	s, _ := openTest(t)
+	register(t, s, "one")
+	root, other := t.TempDir(), t.TempDir()
+	p, _ := s.Project("one")
+	p, err := s.RebindCheckout(context.Background(), p, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ChangeCheckout(context.Background(), p, other, true, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	issue, err := s.AddIssue("one", 9, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, session := range []string{"session-one", "session-two"} {
+		event := core.ActivityEvent{ID: "bind-" + session, Runtime: "opencode", Session: session, Segment: "segment-" + session, At: 1, Kind: "bind", Project: "one", Issue: 9}
+		if err := s.RecordActivity(event); err != nil {
+			t.Fatal(err)
+		}
+		for _, dir := range []string{root, other} {
+			activity, err := s.CurrentActivity("opencode", session, dir)
+			if err != nil || activity.Project != "one" || activity.Assignment != "assigned" || activity.Issue == nil || activity.Issue.ID != issue.ID {
+				t.Fatal(activity, err)
+			}
+		}
 	}
 }
