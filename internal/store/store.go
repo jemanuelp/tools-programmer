@@ -126,8 +126,8 @@ func open(path string, readOnly, initialize bool) (*Store, error) {
 	if !initialize {
 		var version int
 		err = db.QueryRow("PRAGMA user_version").Scan(&version)
-		if err == nil && version != 7 {
-			err = core.Fail("identity_unbound", "access requires existing schema v7 state; migrate and explicitly bind legacy projects first")
+		if err == nil && version != 8 {
+			err = core.Fail("identity_unbound", "access requires existing schema v8 state; migrate and explicitly bind legacy projects first")
 		}
 	} else {
 		err = s.migrate()
@@ -151,7 +151,7 @@ func (s *Store) migrate() error {
 	if err := s.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 7 {
+	if version > 8 {
 		return core.Fail("newer_schema", "database schema is newer than this binary; upgrade the binary")
 	}
 	if version == 0 {
@@ -197,6 +197,16 @@ CREATE INDEX identity_changes_project ON identity_changes(project);
 CREATE TRIGGER identity_changes_no_update BEFORE UPDATE ON identity_changes BEGIN SELECT RAISE(ABORT, 'identity changes are append-only'); END;
 CREATE TRIGGER identity_changes_no_delete BEFORE DELETE ON identity_changes BEGIN SELECT RAISE(ABORT, 'identity changes are append-only'); END;
 PRAGMA user_version=7;`); err != nil {
+			return err
+		}
+	}
+	if version < 8 {
+		if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS project_checkouts(project TEXT NOT NULL REFERENCES projects(name), path TEXT NOT NULL, PRIMARY KEY(project,path));
+CREATE TABLE IF NOT EXISTS checkout_changes(id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL REFERENCES projects(name), path TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN ('authorized','revoked')), recorded_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS checkout_changes_project ON checkout_changes(project);
+CREATE TRIGGER IF NOT EXISTS checkout_changes_no_update BEFORE UPDATE ON checkout_changes BEGIN SELECT RAISE(ABORT, 'checkout changes are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS checkout_changes_no_delete BEFORE DELETE ON checkout_changes BEGIN SELECT RAISE(ABORT, 'checkout changes are append-only'); END;
+PRAGMA user_version=8;`); err != nil {
 			return err
 		}
 	}
@@ -270,14 +280,14 @@ func (s *Store) AddProjectContext(ctx context.Context, p core.Project) (core.Pro
 }
 func (s *Store) Project(name string) (core.Project, error) {
 	var p core.Project
-	err := s.DB.QueryRowContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url,(SELECT count(*) FROM identity_changes WHERE project=projects.name) FROM projects WHERE name=?", name).Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL, &p.IdentityRevision)
+	err := s.DB.QueryRowContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url,(SELECT count(*) FROM identity_changes WHERE project=projects.name),(SELECT count(*) FROM checkout_changes WHERE project=projects.name) FROM projects WHERE name=?", name).Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL, &p.IdentityRevision, &p.CheckoutRevision)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = core.Fail("not_found", "project not registered")
 	}
 	return p, err
 }
 func (s *Store) Projects() ([]core.Project, error) {
-	rows, err := s.DB.QueryContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url,(SELECT count(*) FROM identity_changes WHERE project=projects.name) FROM projects ORDER BY name")
+	rows, err := s.DB.QueryContext(s.context(), "SELECT name,repo,path,allow_no_checks,created_at,expected_github,git_name,git_email,origin_url,(SELECT count(*) FROM identity_changes WHERE project=projects.name),(SELECT count(*) FROM checkout_changes WHERE project=projects.name) FROM projects ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +295,7 @@ func (s *Store) Projects() ([]core.Project, error) {
 	out := []core.Project{}
 	for rows.Next() {
 		var p core.Project
-		if err = rows.Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL, &p.IdentityRevision); err != nil {
+		if err = rows.Scan(&p.Name, &p.Repo, &p.Path, &p.AllowNoChecks, &p.CreatedAt, &p.ExpectedGitHub, &p.GitName, &p.GitEmail, &p.OriginURL, &p.IdentityRevision, &p.CheckoutRevision); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
