@@ -52,11 +52,14 @@ func (s *Store) CurrentActivity(runtime, session, directory string) (ActivityCon
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(s.context(), `SELECT name,repo,path FROM projects
-		WHERE path<>'' AND expected_github<>'' AND git_name<>'' AND git_email<>''`)
+		WHERE path<>'' AND expected_github<>'' AND git_name<>'' AND git_email<>''
+		UNION SELECT p.name,p.repo,c.path FROM projects p JOIN project_checkouts c ON c.project=p.name
+		WHERE p.expected_github<>'' AND p.git_name<>'' AND p.git_email<>''`)
 	if err != nil {
 		return r, err
 	}
 	matches := 0
+	matched := map[string]bool{}
 	for rows.Next() {
 		var name, repo, path string
 		if err = rows.Scan(&name, &repo, &path); err != nil {
@@ -67,7 +70,8 @@ func (s *Store) CurrentActivity(runtime, session, directory string) (ActivityCon
 			continue
 		}
 		rel, e := filepath.Rel(root, directory)
-		if e == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if e == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !matched[name] {
+			matched[name] = true
 			matches++
 			r.Project, r.Repository = name, repo
 		}

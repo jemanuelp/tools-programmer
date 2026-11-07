@@ -38,6 +38,9 @@ mcp install     opencode (register this executable; no database open or gh)
 project add     --name NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL [--path DIR] [--allow-no-checks]
 project bind    --project NAME --repo [HOST/]OWNER/REPO --github-login LOGIN --git-name NAME --git-email EMAIL
 project rebind-checkout --project NAME --path DIR (absolute target; preserves history)
+project authorize-checkout --project NAME --path DIR --authorized (add a checkout without replacing others)
+project checkouts --project NAME (read-only authorized checkout listing)
+project revoke-checkout --project NAME --path DIR --authorized (remove an additional checkout)
 project update-git-identity --project NAME --git-name NAME --git-email EMAIL --path DIR --authorized
 project origin  --project NAME --repo [HOST/]OWNER/REPO --origin-url URL (explicit association; never changes Git origin)
 project check   --project NAME (read-only effective Git author/committer in current checkout)
@@ -211,6 +214,9 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		f.StringVar(&gitEmail, "git-email", "", "explicit newly approved Git email")
 		f.BoolVar(&authorized, "authorized", false, "explicit consent for this project and tuple; not inferred")
 	}
+	if command == "project authorize-checkout" || command == "project revoke-checkout" {
+		f.BoolVar(&authorized, "authorized", false, "explicit consent for this project and checkout")
+	}
 	switch command {
 	case "project add":
 		f.StringVar(&name, "name", "", "project name")
@@ -227,7 +233,9 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 		f.StringVar(&repo, "repo", "", "confirm registered repository")
 	case "project check":
 		f.StringVar(&project, "project", "", "registered project")
-	case "project rebind-checkout", "project update-git-identity":
+	case "project checkouts":
+		f.StringVar(&project, "project", "", "registered project")
+	case "project rebind-checkout", "project update-git-identity", "project authorize-checkout", "project revoke-checkout":
 		f.StringVar(&project, "project", "", "registered project")
 		f.StringVar(&path, "path", "", "absolute checkout target")
 	case "pr sync", "approval plan":
@@ -283,6 +291,9 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 	if command == "project update-git-identity" && !authorized {
 		return emit(nil, core.Fail("authorization_required", "obtain explicit authorization for this project and tuple, then pass --authorized"))
 	}
+	if (command == "project authorize-checkout" || command == "project revoke-checkout") && !authorized {
+		return emit(nil, core.Fail("authorization_required", "obtain explicit authorization for this project and checkout, then pass --authorized"))
+	}
 	if *dbPath == "" {
 		var err error
 		*dbPath, err = store.DefaultPath()
@@ -292,7 +303,7 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 	}
 	var db *store.Store
 	var err error
-	if command == "project check" {
+	if command == "project check" || command == "project checkouts" {
 		db, err = store.OpenReadOnly(*dbPath)
 	} else {
 		db, err = store.Open(*dbPath)
@@ -321,11 +332,11 @@ func RunWithIO(ctx context.Context, args []string, in io.ReadCloser, out, stderr
 	case "project update-git-identity":
 		data, err = svc.UpdateGitIdentity(ctx, project, gitName, gitEmail, path, authorized)
 	case "project check":
-		var p core.Project
-		p, err = db.Project(project)
-		if err == nil {
-			data, err = gitidentity.Check(ctx, p)
-		}
+		data, err = svc.CheckProject(ctx, project)
+	case "project checkouts":
+		data, err = db.Checkouts(project)
+	case "project authorize-checkout", "project revoke-checkout":
+		data, err = svc.ChangeCheckout(ctx, project, path, command == "project authorize-checkout", authorized)
 	case "project rebind-checkout":
 		var p core.Project
 		p, err = db.Project(project)

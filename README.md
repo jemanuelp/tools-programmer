@@ -103,13 +103,33 @@ also suppresses automatic dirty detection: prefer checkout builds when possible.
 
 Supply the user-approved GitHub login and Git commit name/email explicitly at registration. Nothing is inferred from the active account, Git configuration, or review declarations. The GitHub login is compared case-insensitively; Git author and committer names/emails must match exactly. Repository and GitHub login bindings cannot be replaced. The single active expected Git tuple can be deliberately updated as described below; no identity allowlist is introduced. The tool never switches accounts or changes Git configuration.
 
-The check opens an existing v7 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
+The check opens an existing v8 database read-only: it never creates or migrates state. From the intended checkout, immediately before an authorized ordinary commit:
 
 ```sh
 tools-programmer project check --project demo
 ```
 
-This local check never invokes gh. It reads `git var GIT_AUTHOR_IDENT` and `GIT_COMMITTER_IDENT`, including environment and effective configuration overrides, rather than checking `user.name`/`user.email` alone. It requires a working tree with a single local `origin` URL matching the registered repository or its explicitly associated origin; supported forms are HTTPS, `ssh://git@host/owner/repo.git`, and `git@host:owner/repo.git`. Custom ports, unregistered aliases, URL credentials, escapes, queries, fragments and remote helpers are not accepted. If registration has a path, its resolved directory must equal the checkout root. Subdirectories are supported, and changing a worktree path requires `project rebind-checkout`. Git repository-redirection environment variables are refused. Only the current directory is used for check execution, never a stored project path. Git subprocesses are bounded to 10 seconds and 64 KiB per output stream; stderr is suppressed.
+This local check never invokes gh. It reads `git var GIT_AUTHOR_IDENT` and `GIT_COMMITTER_IDENT`, including environment and effective configuration overrides, rather than checking `user.name`/`user.email` alone. It requires a working tree with a single local `origin` URL matching the registered repository or its explicitly associated origin; supported forms are HTTPS, `ssh://git@host/owner/repo.git`, and `git@host:owner/repo.git`. Custom ports, unregistered aliases, URL credentials, escapes, queries, fragments and remote helpers are not accepted. The canonical checkout root must match the primary registration or an explicitly authorized additional checkout. Subdirectories are supported. Legacy pathless projects retain their previous behavior until a checkout is bound or explicitly authorized. Git repository-redirection environment variables are refused. Only the current directory is used for check execution, never a stored project path. Git subprocesses are bounded to 10 seconds and 64 KiB per output stream; stderr is suppressed.
+
+### Authorize parallel worktrees
+
+Use the **same database and project name** in each worktree. After explicit approval for each additional checkout:
+
+```sh
+tools-programmer project authorize-checkout --project demo --path /absolute/worktree-a --authorized
+tools-programmer project authorize-checkout --project demo --path /absolute/worktree-b --authorized
+tools-programmer project checkouts --project demo
+# Run inside each worktree, in its actual committing environment:
+tools-programmer project check --project demo
+# Remove an additional checkout when no longer authorized:
+tools-programmer project revoke-checkout --project demo --path /absolute/worktree-a --authorized
+```
+
+Authorization validates the target's origin and both effective Git identities twice, stores its canonical Git root and appends an atomic local audit event. It accepts linked worktrees and explicitly approved clones with the same repository policy; sharing an origin or Git common directory alone never authorizes a checkout. Symlinks and target subdirectories resolve to the Git root. Missing consent, invalid Git evidence or concurrent policy changes reject the change. Repeating an already-effective authorization/revocation is a no-op, without another audit entry. Revocation takes the recorded root (not a subdirectory); it works even after the directory has been deleted. The primary checkout cannot be revoked with this command: move it with `rebind-checkout` first. A failed command may still have performed the additive schema migration during writable opening.
+
+All checkouts share the project's single expected Git tuple, GitHub binding and issue/activity/review/approval history. Authorization never changes Git configuration, the primary path or existing operations. Activity discovery recognizes all authorized roots and still rejects ambiguity between different projects; multiple roots of one project count as one match. Revocation removes future matching, not past activity. Each real checkout-set change advances `checkout_revision`, permanently staling old approval plans, including revoke/re-authorize cycles; no-ops do not. Replan and obtain fresh apply authorization. Existing unresolved intents remain preserved for read-only reconciliation. `project check` detects policy changes during its inspection but does not lock a later external `git commit`; run it immediately before each commit as usual.
+
+`checkouts` and `check` are read-only and require current schema v8 state. An ordinary writable command such as `project list` performs the additive migration from older schemas, retaining the primary path and history without granting any new checkout. MCP must use the same migrated database; checkout authorization/revocation is native CLI-only. Do not split databases or alternate primary rebindings to run parallel work.
 
 ### Deliberately update an existing expected Git tuple
 
@@ -146,7 +166,7 @@ tools-programmer project rebind-checkout --project demo --path /absolute/path/to
 tools-programmer project list
 ```
 
-The explicit target may be a symlink or subdirectory of a non-bare working tree, including a linked worktree; the stored path is its canonical Git root. A pathless registration can bind this way. The command inspects Git **outside** the database transaction with subprocesses rooted at the target (not the current directory), checks its local origin against the canonical repository or registered alias, and verifies the effective author and committer in the current environment. It makes no Git/configuration changes, network calls or GitHub writes. Only a successfully changed path appends an audit event (`checkout_rebindings`: old/new path, UTC timestamp, result); rebinding to the same canonical root is a no-op. A concurrent policy/path change fails instead of overriding it. Project creation time and all review, issue, activity, plan and operation history remain unchanged. Existing plans refer to the old project policy and cannot be applied after a rebind; create a fresh plan. Unresolved operations still require read-only reconciliation. The new path takes over activity matching without rewriting earlier events. This is a local syntactic identity check, not network attestation or proof of checkout contents.
+The explicit target may be a symlink or subdirectory of a non-bare working tree, including a linked worktree; the stored path is its canonical Git root. A pathless registration can bind this way. The command inspects Git **outside** the database transaction with subprocesses rooted at the target (not the current directory), checks its local origin against the canonical repository or registered alias, and verifies the effective author and committer in the current environment. It makes no Git/configuration changes, network calls or GitHub writes. Only a successfully changed path appends an audit event (`checkout_rebindings`: old/new path, UTC timestamp, result); rebinding to the same canonical root is a no-op. A concurrent policy/path change fails instead of overriding it. Project creation time and all review, issue, activity, plan and operation history remain unchanged. Existing plans refer to the old project policy and cannot be applied after a rebind; create a fresh plan. Unresolved operations still require read-only reconciliation. The new path takes over primary activity matching without rewriting earlier events; independently authorized additional roots remain authorized until revoked. This is a local syntactic identity check, not network attestation or proof of checkout contents.
 
 ### Explicit origin aliases
 
